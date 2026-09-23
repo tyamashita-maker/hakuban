@@ -170,6 +170,8 @@
   .del{background:transparent;border:1px solid var(--line);color:var(--danger);
        border-radius:7px;padding:6px 10px;font-size:13px;font-weight:700;cursor:pointer;}
 
+  .ver{align-self:center;color:var(--ink-dim);font-size:12px;
+       font-variant-numeric:tabular-nums;white-space:nowrap;padding-left:10px;}
   #csvBox{
     width:100%;box-sizing:border-box;height:150px;margin-top:12px;
     background:#0c1114;color:var(--ink);border:1px solid var(--line);border-radius:8px;
@@ -194,6 +196,7 @@
 </style>
 </head>
 <body>
+<script>window.__BUILD__="20260923-1131";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -221,6 +224,7 @@
     <button class="btn" id="bCopy">CSVをコピー</button>
     <span class="grow"></span>
     <button class="btn ghost" id="bWipe">全件削除</button>
+    <span class="ver" id="verTag"></span>
   </div>
 </div>
 
@@ -834,6 +838,12 @@
     if(document.visibilityState==="visible"&&!lock)keepAwake();
   });
 
+  /* ---- 版番号（更新できているかの確認用）---- */
+  (function(){
+    var t=document.getElementById("verTag");
+    if(t) t.textContent = "版 " + (window.__BUILD__ || "claude.ai");
+  })();
+
   /* ---- 起動 ---- */
   restore();
   fit();
@@ -847,8 +857,19 @@
   var ok = ("serviceWorker" in navigator) &&
            (location.protocol==="https:"||location.hostname==="localhost"||location.hostname==="127.0.0.1");
   if(!ok)return;
-  window.addEventListener("load",function(){
-    try{ navigator.serviceWorker.register("sw.js").catch(function(){}); }catch(e){}
+  /* 新しい版に入れ替わったら、その場で読み直す（次回起動を待たずに反映） */
+  var had = !!navigator.serviceWorker.controller, done = false;
+  navigator.serviceWorker.addEventListener("controllerchange", function(){
+    if(!had || done) return;
+    done = true;
+    location.reload();
+  });
+  window.addEventListener("load", function(){
+    try{
+      navigator.serviceWorker.register("sw.js").then(function(reg){
+        try{ reg.update(); }catch(e){}
+      })["catch"](function(){});
+    }catch(e){}
   });
 })();
 </script>

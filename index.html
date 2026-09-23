@@ -201,7 +201,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260923-125714";</script>
+<script>window.__BUILD__="20260923-131828";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -554,6 +554,7 @@
     Object.keys(hits).forEach(function(n){
       var h=hits[n];
       if(h.label) h.label.style.display = circled[n] ? "" : "none";
+      h.ell.style.display="none";   // 選んだものしか出ないので丸囲いは不要
     });
     SHOOT_GROUPS.forEach(function(G){
       var names=Object.keys(hits).filter(function(n){
@@ -566,8 +567,8 @@
       var widest=0;
       names.forEach(function(n){ var w=widthAt100(n); if(w>widest)widest=w; });
       if(widest>0){
-        // 文字だけでなく丸囲いの幅も込みで列に収める
-        var byW=Math.floor((G.w*0.95)/(widest/100+EPAD*2));
+        // 撮影時は丸囲いを出さないので、文字の幅だけで決める
+        var byW=Math.floor((G.w*0.92)/(widest/100));
         if(byW<size)size=byW;
       }
       if(size<36)size=36;
@@ -595,6 +596,7 @@
     Object.keys(hits).forEach(function(n){
       var h=hits[n];
       if(h.label){ h.label.style.cssText=h.css; h.label.style.display=""; }
+      h.ell.style.display = circled[n] ? "" : "none";
       var o=h.ell0;
       h.ell.setAttribute("cx",o.cx); h.ell.setAttribute("cy",o.cy);
       h.ell.setAttribute("rx",o.rx); h.ell.setAttribute("ry",o.ry);

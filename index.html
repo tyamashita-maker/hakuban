@@ -104,6 +104,7 @@
   #ink{position:absolute;left:0;top:0;width:842px;height:1191px;touch-action:none;pointer-events:none;}
   body.pen #ink{pointer-events:auto;}
   body.pen .hit,body.pen .fld{pointer-events:none;}
+  body.shoot .hit{pointer-events:none;}
 
   /* ---------- 操作バー ---------- */
   #bar{
@@ -200,7 +201,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260923-122207";</script>
+<script>window.__BUILD__="20260923-125714";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -312,18 +313,19 @@
   ["写","真","番","号"].forEach(function(c,i){ text(c,537,265+i*29,68,28); });
 
   // 部位
-  PARTS.forEach(function(p){ text(p[0],32,p[1],108,36); });
+  var LABELS={};
+  PARTS.forEach(function(p){ LABELS[p[0]]=text(p[0],32,p[1],108,36); });
 
   // 損傷種類（字間を開けて配置）
   DAMAGES.forEach(function(d){
     var n=el("div","lbl spread",{left:px(159),top:px(d[1]),width:px(155),
       fontSize:px(36),height:px(36)});
     d[0].split("").forEach(function(c){ var s=el("span"); s.textContent=c; n.appendChild(s); });
-    board.appendChild(n);
+    board.appendChild(n); LABELS[d[0]]=n;
   });
 
   // 右下の補足語
-  EXTRAS.forEach(function(x){ text(x[0],x[1],x[3],x[2]-x[1],36); });
+  EXTRAS.forEach(function(x){ LABELS[x[0]]=text(x[0],x[1],x[3],x[2]-x[1],36); });
 
   // W= / L=（等幅にして「=」と入力欄の開始位置をそろえる）
   function wl(str,y){
@@ -507,7 +509,10 @@
       persist();
     });
     board.appendChild(b);
-    return {name:name,group:group,btn:b,ell:e};
+    var lab=LABELS[name]||null;
+    return {name:name,group:group,btn:b,ell:e,label:lab,
+            css:lab?lab.style.cssText:"",
+            ell0:{cx:cx,cy:cy,rx:rx,ry:ry,tr:e.getAttribute("transform")}};
   }
 
   var hits={};
@@ -533,6 +538,68 @@
   function circledOf(group){
     return Object.keys(hits).filter(function(n){
       return circled[n] && hits[n].group===group;
+    });
+  }
+
+  /* ---- 撮影時は選んだ項目だけを大きく並べ直す ---- */
+  var SHOOT_GROUPS=[
+    {g:"part",   x:32,  w:108, cy:577,  availH:620, max:110},
+    {g:"damage", x:141, w:191, cy:577,  availH:620, max:110},
+    {g:"extra",  x:333, w:477, cy:1072, availH:170, max:76}
+  ];
+  var EPAD=0.24;   // 丸囲いの左右の余白（文字サイズに対する比）
+  function widthAt100(t){ measCtx.font=FITFONT.replace("%d",100); return measCtx.measureText(t).width; }
+
+  function layoutShoot(){
+    Object.keys(hits).forEach(function(n){
+      var h=hits[n];
+      if(h.label) h.label.style.display = circled[n] ? "" : "none";
+    });
+    SHOOT_GROUPS.forEach(function(G){
+      var names=Object.keys(hits).filter(function(n){
+        return circled[n] && hits[n].group===G.g;
+      });
+      if(!names.length)return;
+      var cnt=names.length, lhRatio=1.55;
+      var size=Math.floor(G.availH/(cnt*lhRatio));
+      if(size>G.max)size=G.max;
+      var widest=0;
+      names.forEach(function(n){ var w=widthAt100(n); if(w>widest)widest=w; });
+      if(widest>0){
+        // 文字だけでなく丸囲いの幅も込みで列に収める
+        var byW=Math.floor((G.w*0.95)/(widest/100+EPAD*2));
+        if(byW<size)size=byW;
+      }
+      if(size<36)size=36;
+      var lineH=size*lhRatio, top=G.cy-(cnt*lineH)/2;
+      names.forEach(function(n,i){
+        var h=hits[n], y=top+i*lineH+(lineH-size)/2;
+        if(h.label){
+          var st=h.label.style;
+          st.left=px(G.x); st.top=px(y); st.width=px(G.w); st.height=px(size);
+          st.fontSize=px(size); st.textAlign="center"; st.justifyContent="center";
+          st.lineHeight="1";
+        }
+        var tw=widthAt100(n)*size/100;
+        var cx=G.x+G.w/2, cy=y+size/2;
+        h.ell.setAttribute("cx",cx); h.ell.setAttribute("cy",cy);
+        h.ell.setAttribute("rx",tw/2+size*EPAD);
+        h.ell.setAttribute("ry",size/2+size*0.20);
+        h.ell.setAttribute("stroke-width",Math.max(5,Math.round(size*0.075)));
+        h.ell.setAttribute("transform","rotate(0 "+cx+" "+cy+")");
+      });
+    });
+  }
+
+  function restoreLayout(){
+    Object.keys(hits).forEach(function(n){
+      var h=hits[n];
+      if(h.label){ h.label.style.cssText=h.css; h.label.style.display=""; }
+      var o=h.ell0;
+      h.ell.setAttribute("cx",o.cx); h.ell.setAttribute("cy",o.cy);
+      h.ell.setAttribute("rx",o.rx); h.ell.setAttribute("ry",o.ry);
+      h.ell.setAttribute("stroke-width","5");
+      h.ell.setAttribute("transform",o.tr);
     });
   }
 
@@ -920,6 +987,7 @@
   function setShoot(on){
     document.body.classList.toggle("shoot",on);
     if(on&&document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+    if(on)layoutShoot(); else restoreLayout();
     var r=document.documentElement;
     if(on){ r.style.paddingTop="0px"; r.style.paddingBottom="0px"; }
     else  { r.style.paddingTop="";    r.style.paddingBottom="";    }

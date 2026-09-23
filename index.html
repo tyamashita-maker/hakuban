@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="電子白板">
+<meta name="theme-color" content="#12171b">
+<meta name="color-scheme" content="light">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+  :root{
+    color-scheme:light;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  body{margin:0;font:14px system-ui,-apple-system,sans-serif;background:#faf9f7;}
+  img{max-width:100%;}
+  [hidden]{display:none!important;}
+</style>
+<title>事業損失 電子白板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Noto+Sans+Mono:wght@700&display=swap">
+<style>
+  :root{
+    --chrome:#12171b;
+    --chrome-2:#1b2329;
+    --chrome-3:#242f36;
+    --line:#33424c;
+    --ink:#e8eef2;
+    --ink-dim:#93a4b0;
+    --amber:#f0a03c;
+    --amber-deep:#c97a18;
+    --danger:#e2674f;
+    --gothic:"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic","MS Gothic",sans-serif;
+  }
+  html,body{height:100%;}
+  body{
+    margin:0;background:var(--chrome);color:var(--ink);
+    font-family:var(--gothic);
+    -webkit-text-size-adjust:100%;
+    touch-action:manipulation;
+    overscroll-behavior:none;
+    user-select:none;-webkit-user-select:none;
+  }
+  #app{height:100%;display:flex;flex-direction:column;}
+
+  /* ---------- 白板ステージ ---------- */
+  #stage{
+    flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
+    padding:10px;box-sizing:border-box;
+  }
+  #boardWrap{position:relative;}
+  #board{
+    position:relative;width:842px;height:1191px;
+    transform-origin:top left;
+    background:#fff;color:#000;
+    box-shadow:0 10px 34px rgba(0,0,0,.55);
+  }
+  .ln{position:absolute;background:#000;}
+  .lbl{position:absolute;font-weight:700;line-height:1;white-space:nowrap;}
+  .spread{display:flex;justify-content:space-between;align-items:center;}
+  .wl{position:absolute;font-weight:700;line-height:1;white-space:nowrap;
+      font-family:"Noto Sans Mono",ui-monospace,"SF Mono",Menlo,monospace;}
+  .vlbl{position:absolute;font-weight:700;line-height:1;text-align:center;}
+
+  /* 入力欄 */
+  .fld{
+    position:absolute;box-sizing:border-box;
+    font-family:var(--gothic);font-weight:700;color:#000;
+    background:transparent;border:0;outline:0;padding:0 10px;
+    -webkit-appearance:none;border-radius:0;
+    user-select:text;-webkit-user-select:text;
+  }
+  .fld::placeholder{color:#c9c9c9;font-weight:500;}
+  .fld:focus{background:rgba(240,160,60,.17);}
+  body.shoot .fld:focus{background:transparent;}
+  .fld.ctr{text-align:center;padding:0;}
+  .fld.date{border-bottom:2px solid #dcdcdc;}
+  body.shoot .fld.date{border-bottom-color:transparent;}
+
+  /* タップで丸囲い */
+  #marks{position:absolute;left:0;top:0;inset:0;width:842px;height:1191px;pointer-events:none;}
+  .hit{position:absolute;background:transparent;border:0;padding:0;margin:0;cursor:pointer;
+       -webkit-tap-highlight-color:transparent;}
+  .hit:focus-visible{outline:3px solid var(--amber);outline-offset:2px;}
+
+  /* 手書きレイヤー */
+  #ink{position:absolute;left:0;top:0;width:842px;height:1191px;touch-action:none;pointer-events:none;}
+  body.pen #ink{pointer-events:auto;}
+  body.pen .hit,body.pen .fld{pointer-events:none;}
+
+  /* ---------- 操作バー ---------- */
+  #bar{
+    flex:0 0 auto;display:flex;gap:8px;align-items:center;
+    background:var(--chrome-2);border-top:1px solid var(--line);
+    padding:9px 12px;padding-bottom:calc(9px + env(safe-area-inset-bottom,0px));
+  }
+  body.shoot #bar{display:none;}
+  .btn{
+    font-family:var(--gothic);font-weight:700;font-size:16px;color:var(--ink);
+    background:var(--chrome-3);border:1px solid var(--line);border-radius:8px;
+    padding:11px 14px;min-height:46px;cursor:pointer;white-space:nowrap;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .btn:active{transform:translateY(1px);}
+  .btn[aria-pressed="true"]{background:var(--amber);border-color:var(--amber);color:#1a1205;}
+  .btn.primary{background:var(--amber);border-color:var(--amber-deep);color:#1a1205;}
+  .btn.ghost{background:transparent;color:var(--ink-dim);}
+  .btn:disabled{opacity:.4;}
+  .grow{flex:1;}
+  .count{
+    display:inline-block;min-width:22px;margin-left:6px;padding:1px 6px;border-radius:99px;
+    background:rgba(255,255,255,.14);font-size:13px;font-weight:700;
+  }
+
+  /* 保存できない環境の警告帯 */
+  #warn{
+    flex:0 0 auto;display:none;gap:8px;align-items:flex-start;
+    background:#3a2410;border-top:2px solid var(--amber);
+    color:#ffd9a6;font-size:13px;line-height:1.6;padding:9px 12px;
+  }
+  body.nostore #warn{display:flex;}
+  body.shoot #warn{display:none;}
+
+  /* 撮影モードの復帰つまみ */
+  #handle{
+    display:none;flex:0 0 auto;height:26px;align-items:center;justify-content:center;
+    background:#0a0d0f;border:0;width:100%;cursor:pointer;
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  body.shoot #handle{display:flex;}
+  #handle span{width:54px;height:5px;border-radius:99px;background:#3a4750;}
+
+  /* ---------- 一覧シート ---------- */
+  #sheet[hidden]{display:none;}
+  #sheet{
+    position:fixed;left:0;top:0;right:0;bottom:0;inset:0;z-index:40;background:var(--chrome);
+    display:flex;flex-direction:column;
+    padding-top:env(safe-area-inset-top,0px);
+  }
+  #sheetHead{
+    display:flex;gap:8px;align-items:center;padding:12px;
+    border-bottom:1px solid var(--line);background:var(--chrome-2);
+  }
+  #sheetHead h2{margin:0;font-size:17px;font-weight:900;letter-spacing:.04em;}
+  #sheetBody{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;padding:12px;}
+  #sheetFoot{
+    display:flex;gap:8px;padding:12px;border-top:1px solid var(--line);background:var(--chrome-2);
+    padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
+  }
+  table{border-collapse:collapse;width:100%;font-size:14px;}
+  th,td{padding:8px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;}
+  th{color:var(--ink-dim);font-size:12px;font-weight:700;letter-spacing:.06em;white-space:nowrap;}
+  td{user-select:text;-webkit-user-select:text;}
+  .num{font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .tblwrap{overflow-x:auto;}
+  .empty{color:var(--ink-dim);font-size:15px;line-height:1.8;padding:28px 4px;}
+  .del{background:transparent;border:1px solid var(--line);color:var(--danger);
+       border-radius:7px;padding:6px 10px;font-size:13px;font-weight:700;cursor:pointer;}
+
+  #csvBox{
+    width:100%;box-sizing:border-box;height:150px;margin-top:12px;
+    background:#0c1114;color:var(--ink);border:1px solid var(--line);border-radius:8px;
+    padding:10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;
+    user-select:text;-webkit-user-select:text;
+  }
+
+  /* トースト */
+  #toast{
+    position:fixed;left:50%;bottom:84px;transform:translateX(-50%) translateY(8px);
+    background:#0a0d0f;color:var(--ink);border:1px solid var(--line);
+    padding:11px 18px;border-radius:99px;font-size:15px;font-weight:700;
+    opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:60;
+  }
+  #toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
+  @media (prefers-reduced-motion:reduce){#toast{transition:none;}.btn:active{transform:none;}}
+
+  @media (max-width:520px){
+    .btn{font-size:14px;padding:10px 10px;}
+    #bar{gap:6px;padding:8px;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
+  <div id="bar">
+    <button class="btn" id="bPen" aria-pressed="false">手書き</button>
+    <button class="btn" id="bUndo">手書き取消</button>
+    <button class="btn ghost" id="bClear">この面をクリア</button>
+    <span class="grow"></span>
+    <button class="btn" id="bShoot">撮影</button>
+    <button class="btn" id="bList">一覧<span class="count" id="cCount">0</span></button>
+    <button class="btn primary" id="bSave">保存して次へ</button>
+  </div>
+  <div id="warn" role="alert">この環境では記録がiPadに保存されません。アプリを閉じると消えるので、こまめに「一覧」からCSVをコピーしてください。</div>
+  <button id="handle" aria-label="操作バーを表示"><span></span></button>
+</div>
+
+<div id="sheet" hidden>
+  <div id="sheetHead">
+    <h2>調査記録</h2>
+    <span class="grow"></span>
+    <button class="btn" id="bClose">閉じる</button>
+  </div>
+  <div id="sheetBody"></div>
+  <div id="sheetFoot">
+    <button class="btn primary" id="bCsv">CSVで書き出す</button>
+    <button class="btn" id="bCopy">CSVをコピー</button>
+    <span class="grow"></span>
+    <button class="btn ghost" id="bWipe">全件削除</button>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* =========================================================
+     白板のジオメリ（元PDF 841.92 x 1190.52pt をそのまま採用）
+     ========================================================= */
+  var BW = 842, BH = 1191;
+  var T = 3; // 罫線の太さ
+
+  var LINES = [
+    // 外枠
+    [30,27,812,27],[30,1161,812,1161],[30,27,30,1161],[812,27,812,1161],
+    // 横罫
+    [30,138,812,138],[30,250,812,250],[30,395,812,395],
+    // 1〜2段目の縦罫
+    [154,27,154,250],[291,27,291,250],[414,27,414,250],
+    // 3段目の縦罫
+    [99,250,99,395],[537,250,537,395],[605,250,605,395],
+    // 本体の縦罫
+    [140,395,140,1161],[332,395,332,1161]
+  ];
+
+  // 部位（左列）
+  var PARTS = [
+    ["床",430],["壁",504],["天井",577],["建具",651],["木部",724],
+    ["基礎",797],["屋根",871],["軒天",944],["塀",1018],["擁壁",1091]
+  ];
+  // 損傷種類（中列）
+  var DAMAGES = [
+    ["亀裂",430],["ちり切れ",504],["隙間",577],["破損",651],["目地切れ",724],
+    ["剥離",797],["浮き",871],["しみ",944],["開閉不良",1018],["補修跡",1091]
+  ];
+  // 右下の補足語（x0,x1,y）
+  var EXTRAS = [
+    ["傾斜",385,457,1018],["枚",554,590,1018],["ヶ所",686,758,1018],
+    ["多数",385,457,1091],["全面",536,608,1091],["現況",686,758,1091]
+  ];
+
+  var board = document.getElementById("board");
+  var el = function(tag,cls,css){
+    var n=document.createElement(tag); if(cls)n.className=cls;
+    if(css)for(var k in css)n.style[k]=css[k];
+    return n;
+  };
+  var px = function(v){return v+"px";};
+
+  /* ---- 罫線 ---- */
+  LINES.forEach(function(L){
+    var x0=L[0],y0=L[1],x1=L[2],y1=L[3];
+    var h = (y0===y1);
+    board.appendChild(el("div","ln",{
+      left:px(h?x0:x0-T/2), top:px(h?y0-T/2:y0),
+      width:px(h?(x1-x0):T), height:px(h?T:(y1-y0))
+    }));
+  });
+
+  /* ---- 固定の見出し文字 ---- */
+  function text(str,x,y,w,size,align){
+    var n=el("div","lbl",{left:px(x),top:px(y),width:px(w),fontSize:px(size),
+      textAlign:align||"center",height:px(size)});
+    n.textContent=str; board.appendChild(n); return n;
+  }
+  text("調　査",30,37,124,36);
+  text("番　号",30,93,124,36);
+  text("調　査",291,37,123,36);
+  text("年月日",291,93,123,36);
+  text("建　物",30,149,124,36);
+  text("番　号",30,204,124,36);
+  text("所有者",291,177,123,36);
+
+  // 場所（縦書き）
+  text("場",30,268,69,36);
+  text("所",30,342,69,36);
+  // 写真番号（縦書き）
+  ["写","真","番","号"].forEach(function(c,i){ text(c,537,265+i*29,68,28); });
+
+  // 部位
+  PARTS.forEach(function(p){ text(p[0],32,p[1],108,36); });
+
+  // 損傷種類（字間を開けて配置）
+  DAMAGES.forEach(function(d){
+    var n=el("div","lbl spread",{left:px(159),top:px(d[1]),width:px(155),
+      fontSize:px(36),height:px(36)});
+    d[0].split("").forEach(function(c){ var s=el("span"); s.textContent=c; n.appendChild(s); });
+    board.appendChild(n);
+  });
+
+  // 右下の補足語
+  EXTRAS.forEach(function(x){ text(x[0],x[1],x[3],x[2]-x[1],36); });
+
+  // W= / L=（等幅にして「=」と入力欄の開始位置をそろえる）
+  function wl(str,y){
+    var n=el("div","wl",{left:px(379),top:px(y),fontSize:px(72),height:px(72)});
+    n.textContent=str; board.appendChild(n);
+  }
+  wl("W=",486); wl("L=",596);
+
+  /* ---- 入力欄 ---- */
+  function field(id,x,y,w,h,size,align,ph,mode){
+    var n=el("input","fld"+(align==="center"?" ctr":""),{
+      left:px(x),top:px(y),width:px(w),height:px(h),fontSize:px(size),
+      textAlign:align||"left"
+    });
+    n.type="text"; n.id=id; n.autocomplete="off"; n.autocapitalize="off";
+    n.spellcheck=false;
+    if(ph)n.placeholder=ph;
+    if(mode)n.setAttribute("inputmode",mode);
+    board.appendChild(n); return n;
+  }
+  var fNo    = field("f-no",   154, 27,137,111,54,"center","",  "numeric");
+  var fYear  = field("f-year", 0,0,0,0,36,"center","","numeric");
+  var fMon   = field("f-mon",  0,0,0,0,36,"center","","numeric");
+  var fDay   = field("f-day",  0,0,0,0,36,"center","","numeric");
+  var fBldg  = field("f-bldg", 154,138,137,112,54,"center","",  "numeric");
+  var fOwner = field("f-owner",414,138,396,112,48,"left","");
+  var fPlace = field("f-place", 99,250,438,145,44,"left","");
+  var fPhoto = field("f-photo",605,250,205,145,54,"center","","numeric");
+  var fW     = field("f-w",    478,486,327, 72,60,"left","");
+  var fL     = field("f-l",    478,596,327, 72,60,"left","");
+
+  // 令和 □年 □月 □日
+  (function(){
+    var row=el("div","lbl",{left:px(414),top:px(46),width:px(396),height:px(72),
+      fontSize:px(36),display:"flex",alignItems:"center",justifyContent:"center",gap:px(2)});
+    function lit(s){var n=el("span",null,{padding:"0 2px"});n.textContent=s;return n;}
+    function slot(inp,w){
+      inp.style.position="static"; inp.style.width=px(w); inp.style.height=px(46);
+      inp.style.fontSize=px(36); inp.style.padding="0";
+      return inp;
+    }
+    [fYear,fMon,fDay].forEach(function(f){ f.classList.add("date"); });
+    row.appendChild(lit("令和"));
+    row.appendChild(slot(fYear,52));
+    row.appendChild(lit("年"));
+    row.appendChild(slot(fMon,52));
+    row.appendChild(lit("月"));
+    row.appendChild(slot(fDay,52));
+    row.appendChild(lit("日"));
+    board.appendChild(row);
+  })();
+
+  /* ---- 丸囲いレイヤー ---- */
+  var SVGNS="http://www.w3.org/2000/svg";
+  var marks=document.createElementNS(SVGNS,"svg");
+  marks.setAttribute("id","marks");
+  marks.setAttribute("viewBox","0 0 "+BW+" "+BH);
+  board.appendChild(marks);
+
+  var circled={};           // name -> true
+  var hitIndex=0;
+
+  function addHit(name,group,x0,y0,x1,y1){
+    var b=el("button","hit",{left:px(x0-10),top:px(y0-10),
+      width:px(x1-x0+20),height:px(y1-y0+20)});
+    b.type="button";
+    b.setAttribute("aria-pressed","false");
+    b.setAttribute("aria-label",name);
+    var cx=(x0+x1)/2, cy=(y0+y1)/2;
+    var rx=(x1-x0)/2+16, ry=(y1-y0)/2+12;
+    var ang=((hitIndex*37)%7)-3; hitIndex++;
+    var e=document.createElementNS(SVGNS,"ellipse");
+    e.setAttribute("cx",cx); e.setAttribute("cy",cy);
+    e.setAttribute("rx",rx); e.setAttribute("ry",ry);
+    e.setAttribute("fill","none"); e.setAttribute("stroke","#000");
+    e.setAttribute("stroke-width","5"); e.setAttribute("stroke-linecap","round");
+    e.setAttribute("transform","rotate("+ang+" "+cx+" "+cy+")");
+    e.style.display="none";
+    marks.appendChild(e);
+    b.addEventListener("click",function(){
+      setCircle(name,!circled[name]);
+      persist();
+    });
+    board.appendChild(b);
+    return {name:name,group:group,btn:b,ell:e};
+  }
+
+  var hits={};
+  PARTS.forEach(function(p){
+    var w = p[0].length*36;
+    var x0 = 86 - w/2;
+    hits[p[0]] = addHit(p[0],"part",x0,p[1],x0+w,p[1]+36);
+  });
+  DAMAGES.forEach(function(d){
+    hits[d[0]] = addHit(d[0],"damage",159,d[1],314,d[1]+36);
+  });
+  EXTRAS.forEach(function(x){
+    hits[x[0]] = addHit(x[0],"extra",x[1],x[3],x[2],x[3]+36);
+  });
+
+  function setCircle(name,on){
+    var h=hits[name]; if(!h)return;
+    circled[name]=!!on;
+    h.ell.style.display = on ? "" : "none";
+    h.btn.setAttribute("aria-pressed", on?"true":"false");
+  }
+  function clearCircles(){ Object.keys(hits).forEach(function(n){ setCircle(n,false); }); }
+  function circledOf(group){
+    return Object.keys(hits).filter(function(n){
+      return circled[n] && hits[n].group===group;
+    });
+  }
+
+  /* ---- 手書きレイヤー ---- */
+  var cv=el("canvas"); cv.id="ink"; board.appendChild(cv);
+  var ctx=cv.getContext("2d");
+  var strokes=[];        // [{pts:[[x,y],...]}]
+  var cur=null;
+  var penSeen=false;     // Apple Pencilを一度でも検知したら指入力を無視（パームリジェクト）
+  var R=2;
+
+  function sizeCanvas(){
+    var r=Math.min(2.5,Math.max(1.5,(scale||1)*(window.devicePixelRatio||1)));
+    R=r;
+    cv.width=Math.round(BW*r); cv.height=Math.round(BH*r);
+    ctx=cv.getContext("2d");
+    ctx.setTransform(r,0,0,r,0,0);
+    redrawInk();
+  }
+  function drawStroke(s){
+    if(!s.pts.length)return;
+    if(s.pts.length===1){ dot(s.pts[0]); return; }
+    extend(s.pts[0],s.pts.slice(1));
+  }
+  function redrawInk(){
+    ctx.clearRect(0,0,BW,BH);
+    strokes.forEach(drawStroke);
+  }
+  function toBoard(e){
+    var r=board.getBoundingClientRect();
+    return [(e.clientX-r.left)/scale,(e.clientY-r.top)/scale];
+  }
+  function penStyle(){
+    ctx.lineWidth=4; ctx.lineCap="round"; ctx.lineJoin="round"; ctx.strokeStyle="#000";
+  }
+  function dot(p){
+    ctx.beginPath(); ctx.arc(p[0],p[1],2,0,Math.PI*2);
+    ctx.fillStyle="#000"; ctx.fill();
+  }
+  // 線を伸ばした分だけ描き足す（毎回全部描き直すと古い機種で重くなるため）
+  function extend(from,pts){
+    if(!pts.length)return;
+    penStyle();
+    ctx.beginPath();
+    ctx.moveTo(from[0],from[1]);
+    for(var i=0;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+    ctx.stroke();
+  }
+  cv.addEventListener("pointerdown",function(e){
+    if(e.pointerType==="pen")penSeen=true;
+    if(penSeen && e.pointerType==="touch")return;
+    cv.setPointerCapture(e.pointerId);
+    cur={pts:[toBoard(e)]};
+    strokes.push(cur);
+    dot(cur.pts[0]);
+    e.preventDefault();
+  });
+  cv.addEventListener("pointermove",function(e){
+    if(!cur)return;
+    if(penSeen && e.pointerType==="touch")return;
+    var evs = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
+    if(!evs || !evs.length) evs=[e];   // 空で返る環境があるので取りこぼさない
+    var from = cur.pts[cur.pts.length-1], add=[];
+    for(var i=0;i<evs.length;i++) add.push(toBoard(evs[i]));
+    extend(from,add);
+    for(var j=0;j<add.length;j++) cur.pts.push(add[j]);
+    e.preventDefault();
+  });
+  function endStroke(){ if(cur){cur=null;persist();} }
+  cv.addEventListener("pointerup",endStroke);
+  cv.addEventListener("pointercancel",endStroke);
+  cv.addEventListener("pointerleave",endStroke);
+
+  /* ---- 拡大率 ---- */
+  var scale=1;
+  var stage=document.getElementById("stage");
+  var wrap=document.getElementById("boardWrap");
+  function fit(){
+    var pad=document.body.classList.contains("shoot")?4:10;
+    stage.style.padding=px(pad);
+    var aw=stage.clientWidth-pad*2, ah=stage.clientHeight-pad*2;
+    scale=Math.min(aw/BW,ah/BH);
+    if(!isFinite(scale)||scale<=0)scale=1;
+    board.style.transform="scale("+scale+")";
+    wrap.style.width=px(BW*scale);
+    wrap.style.height=px(BH*scale);
+    sizeCanvas();
+  }
+  window.addEventListener("resize",fit);
+  window.addEventListener("orientationchange",function(){setTimeout(fit,250);});
+
+  /* =========================================================
+     保存・記録
+     ========================================================= */
+  var KEY_R="jsb.records.v1", KEY_S="jsb.state.v1";
+  var records=[];
+  var dateEditedOn=null;   // 日付を手で直した日（その日のうちは自動更新しない）
+
+  function todayISO(){
+    var d=new Date(), p=function(n){return (n<10?"0":"")+n;};
+    return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());
+  }
+  function setToday(){
+    var d=new Date();
+    fYear.value=String(d.getFullYear()-2018);
+    fMon.value=String(d.getMonth()+1);
+    fDay.value=String(d.getDate());
+  }
+
+  var storageOK=(function(){
+    try{
+      var k="jsb.probe";
+      localStorage.setItem(k,"1");
+      var ok=localStorage.getItem(k)==="1";
+      localStorage.removeItem(k);
+      return ok;
+    }catch(e){ return false; }
+  })();
+  if(!storageOK) document.body.classList.add("nostore");
+
+  function lsGet(k){ try{return localStorage.getItem(k);}catch(e){return null;} }
+  function lsSet(k,v){ try{localStorage.setItem(k,v);}catch(e){} }
+
+  function snapshot(){
+    return {
+      no:fNo.value, year:fYear.value, mon:fMon.value, day:fDay.value,
+      bldg:fBldg.value, owner:fOwner.value, place:fPlace.value, photo:fPhoto.value,
+      w:fW.value, l:fL.value, dateEditedOn:dateEditedOn,
+      circled:Object.keys(circled).filter(function(n){return circled[n];}),
+      strokes:strokes
+    };
+  }
+  var pt=null;
+  function persist(){
+    if(pt)clearTimeout(pt);
+    pt=setTimeout(function(){
+      lsSet(KEY_S,JSON.stringify(snapshot()));
+      lsSet(KEY_R,JSON.stringify(records));
+    },250);
+  }
+  [fNo,fYear,fMon,fDay,fBldg,fOwner,fPlace,fPhoto,fW,fL].forEach(function(f){
+    f.addEventListener("input",persist);
+  });
+  [fYear,fMon,fDay].forEach(function(f){
+    f.addEventListener("input",function(){ dateEditedOn=todayISO(); });
+  });
+
+  function restore(){
+    var r=lsGet(KEY_R);
+    if(r){ try{ records=JSON.parse(r)||[]; }catch(e){ records=[]; } }
+    var s=lsGet(KEY_S), st=null;
+    if(s){ try{ st=JSON.parse(s); }catch(e){ st=null; } }
+    if(st){
+      fNo.value=st.no||"";
+      dateEditedOn=st.dateEditedOn||null;
+      if(dateEditedOn===todayISO()){
+        fYear.value=st.year||""; fMon.value=st.mon||""; fDay.value=st.day||"";
+      }else{
+        dateEditedOn=null; setToday();   // 日付は毎日自動で今日に戻す
+      }
+      fBldg.value=st.bldg||""; fOwner.value=st.owner||""; fPlace.value=st.place||"";
+      fPhoto.value=st.photo||""; fW.value=st.w||""; fL.value=st.l||"";
+      (st.circled||[]).forEach(function(n){ setCircle(n,true); });
+      strokes=(st.strokes||[]).filter(function(x){return x&&x.pts;});
+    }else{
+      setToday();
+      fNo.value="1"; fPhoto.value="1";
+    }
+    renderCount();
+  }
+
+  function bump(v){
+    var n=parseInt(String(v).replace(/[^0-9]/g,""),10);
+    return isNaN(n)?v:String(n+1);
+  }
+
+  function save(){
+    var rec={
+      no:fNo.value.trim(),
+      date:"令和"+fYear.value+"年"+fMon.value+"月"+fDay.value+"日",
+      bldg:fBldg.value.trim(),
+      owner:fOwner.value.trim(),
+      place:fPlace.value.trim(),
+      photo:fPhoto.value.trim(),
+      part:circledOf("part").join("・"),
+      damage:circledOf("damage").join("・"),
+      extra:circledOf("extra").join("・"),
+      w:fW.value.trim(),
+      l:fL.value.trim(),
+      at:new Date().toISOString().slice(0,19).replace("T"," ")
+    };
+    records.push(rec);
+    // 次の1枚へ：番号は繰り上げ、物件情報は残す
+    fNo.value=bump(fNo.value);
+    fPhoto.value=bump(fPhoto.value);
+    clearCircles(); strokes=[]; redrawInk();
+    fW.value=""; fL.value="";
+    renderCount(); persist();
+    toast("保存しました（"+records.length+"件）");
+  }
+
+  function clearFace(){
+    clearCircles(); strokes=[]; redrawInk();
+    fW.value=""; fL.value="";
+    persist(); toast("この面をクリアしました");
+  }
+
+  /* ---- CSV ---- */
+  var COLS=[["no","調査番号"],["date","調査年月日"],["bldg","建物番号"],["owner","所有者"],
+            ["place","場所"],["photo","写真番号"],["part","部位"],["damage","損傷種類"],
+            ["extra","補足"],["w","W"],["l","L"],["at","保存時刻"]];
+  function csvCell(v){
+    v=v==null?"":String(v);
+    return /[",\r\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
+  }
+  function buildCsv(){
+    var rows=[COLS.map(function(c){return c[1];}).join(",")];
+    records.forEach(function(r){
+      rows.push(COLS.map(function(c){return csvCell(r[c[0]]);}).join(","));
+    });
+    return "﻿"+rows.join("\r\n")+"\r\n";
+  }
+  function csvName(){
+    var d=new Date(), p=function(n){return (n<10?"0":"")+n;};
+    return "事業損失_調査記録_"+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+".csv";
+  }
+
+  // claude.ai で開いた版はアプリ側の保存機能、ファイル版は通常のダウンロードを使う
+  var onArtifact=!!(window.claude&&window.claude.use);
+  var downloads=null;
+  if(onArtifact){
+    window.claude.use("downloads").then(function(d){ downloads=d; }).catch(function(){});
+  }
+  function saveAsFile(name,text){
+    try{
+      var blob=new Blob([text],{type:"text/csv;charset=utf-8"});
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement("a");
+      a.href=url; a.download=name; a.style.display="none";
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){
+        if(a.parentNode)a.parentNode.removeChild(a);
+        URL.revokeObjectURL(url);
+      },1000);
+      return true;
+    }catch(e){ return false; }
+  }
+
+  document.getElementById("bCsv").addEventListener("click",function(){
+    if(!records.length){ toast("記録がありません"); return; }
+    if(!onArtifact){
+      if(saveAsFile(csvName(),buildCsv())) toast("CSVを書き出しました");
+      else toast("保存できませんでした。コピーをお使いください");
+      return;
+    }
+    if(!downloads){ toast("この画面では保存できません。コピーをお使いください"); return; }
+    downloads.save({filename:csvName(),data:buildCsv()}).then(function(){
+      toast("CSVを保存しました");
+    }).catch(function(err){
+      var c=err&&err.code;
+      if(c==="declined") toast("保存を取り消しました");
+      else if(c==="rate_limited") toast("少し待ってからもう一度");
+      else toast("保存できませんでした。コピーをお使いください");
+    });
+  });
+
+  document.getElementById("bCopy").addEventListener("click",function(){
+    if(!records.length){ toast("記録がありません"); return; }
+    var box=document.getElementById("csvBox");
+    var txt=buildCsv().replace(/^﻿/,"");
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(function(){ toast("コピーしました"); },
+        function(){ box.focus(); box.select(); toast("下の欄を選んでコピーしてください"); });
+    }else{
+      box.focus(); box.select(); toast("下の欄を選んでコピーしてください");
+    }
+  });
+
+  /* ---- 一覧シート ---- */
+  var sheet=document.getElementById("sheet");
+  var sheetBody=document.getElementById("sheetBody");
+  function renderCount(){ document.getElementById("cCount").textContent=records.length; }
+
+  function renderSheet(){
+    sheetBody.innerHTML="";
+    if(!records.length){
+      var p=el("div","empty");
+      p.textContent="まだ記録がありません。白板を書いて「保存して次へ」を押すと、ここに1行ずつ溜まります。";
+      sheetBody.appendChild(p);
+      return;
+    }
+    var wrapT=el("div","tblwrap");
+    var t=el("table");
+    var thead=el("thead"), trh=el("tr");
+    COLS.forEach(function(c){ var th=el("th"); th.textContent=c[1]; trh.appendChild(th); });
+    trh.appendChild(el("th"));
+    thead.appendChild(trh); t.appendChild(thead);
+    var tb=el("tbody");
+    records.forEach(function(r,i){
+      var tr=el("tr");
+      COLS.forEach(function(c){
+        var td=el("td",(c[0]==="no"||c[0]==="photo"||c[0]==="w"||c[0]==="l")?"num":null);
+        td.textContent=r[c[0]]||"";
+        tr.appendChild(td);
+      });
+      var td=el("td");
+      var b=el("button","del"); b.type="button"; b.textContent="削除";
+      b.addEventListener("click",function(){
+        if(!confirm("この行を削除しますか？\n調査番号 "+(r.no||"-")))return;
+        records.splice(i,1); renderCount(); persist(); renderSheet();
+      });
+      td.appendChild(b); tr.appendChild(td);
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); wrapT.appendChild(t); sheetBody.appendChild(wrapT);
+
+    var box=el("textarea"); box.id="csvBox"; box.readOnly=true;
+    box.value=buildCsv().replace(/^﻿/,"");
+    sheetBody.appendChild(box);
+  }
+
+  document.getElementById("bList").addEventListener("click",function(){
+    renderSheet(); sheet.hidden=false;
+  });
+  document.getElementById("bClose").addEventListener("click",function(){ sheet.hidden=true; });
+  document.getElementById("bWipe").addEventListener("click",function(){
+    if(!records.length){ toast("記録がありません"); return; }
+    if(!confirm("記録を全件削除します。\n書き出していない分は戻せません。よろしいですか？"))return;
+    records=[]; renderCount(); persist(); renderSheet(); toast("全件削除しました");
+  });
+
+  /* ---- ツールバー ---- */
+  var bPen=document.getElementById("bPen");
+  bPen.addEventListener("click",function(){
+    var on=!document.body.classList.contains("pen");
+    document.body.classList.toggle("pen",on);
+    bPen.setAttribute("aria-pressed",on?"true":"false");
+    if(on&&document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+  });
+  document.getElementById("bUndo").addEventListener("click",function(){
+    if(!strokes.length){ toast("消す手書きがありません"); return; }
+    strokes.pop(); redrawInk(); persist();
+  });
+  document.getElementById("bClear").addEventListener("click",function(){
+    if(!confirm("丸囲い・手書き・W/L を消します。\n物件情報と番号は残ります。"))return;
+    clearFace();
+  });
+  document.getElementById("bSave").addEventListener("click",save);
+
+  // ---- 全画面（iPadのSafariは対応。効かない環境では撮影モードだけ働く）----
+  function fsEl(){ return document.fullscreenElement||document.webkitFullscreenElement||null; }
+  var enteredFS=false;
+  function enterFS(){
+    var el=document.documentElement;
+    var fn=el.requestFullscreen||el.webkitRequestFullscreen;
+    if(!fn)return;
+    try{ var r=fn.call(el); if(r&&r["catch"])r["catch"](function(){}); }catch(e){}
+  }
+  function exitFS(){
+    if(!fsEl())return;
+    var fn=document.exitFullscreen||document.webkitExitFullscreen;
+    if(!fn)return;
+    try{ var r=fn.call(document); if(r&&r["catch"])r["catch"](function(){}); }catch(e){}
+  }
+  function onFsChange(){
+    var on=!!fsEl();
+    if(on){ enteredFS=true; }
+    else if(enteredFS){
+      enteredFS=false;
+      if(document.body.classList.contains("shoot")) setShoot(false);
+    }
+    setTimeout(fit,60);
+  }
+  document.addEventListener("fullscreenchange",onFsChange);
+  document.addEventListener("webkitfullscreenchange",onFsChange);
+
+  function setShoot(on){
+    document.body.classList.toggle("shoot",on);
+    if(on&&document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+    if(on)enterFS(); else exitFS();
+    fit();
+  }
+  document.getElementById("bShoot").addEventListener("click",function(){ setShoot(true); });
+  document.getElementById("handle").addEventListener("click",function(){ setShoot(false); });
+
+  /* ---- トースト ---- */
+  var toastEl=document.getElementById("toast"), tt=null;
+  function toast(msg){
+    toastEl.textContent=msg; toastEl.classList.add("on");
+    if(tt)clearTimeout(tt);
+    tt=setTimeout(function(){ toastEl.classList.remove("on"); },1900);
+  }
+
+  /* ---- 画面を消さない ---- */
+  var lock=null;
+  function keepAwake(){
+    if(!navigator.wakeLock)return;
+    navigator.wakeLock.request("screen").then(function(l){
+      lock=l; l.addEventListener("release",function(){ lock=null; });
+    }).catch(function(){});
+  }
+  document.addEventListener("visibilitychange",function(){
+    if(document.visibilityState==="visible"&&!lock)keepAwake();
+  });
+
+  /* ---- 起動 ---- */
+  restore();
+  fit();
+  redrawInk();
+  keepAwake();
+  if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fit);
+})();
+</script>
+<script>
+/* オフラインで動かすための登録。file:// や claude.ai では何もしない */
+(function(){
+  var ok = ("serviceWorker" in navigator) &&
+           (location.protocol==="https:"||location.hostname==="localhost"||location.hostname==="127.0.0.1");
+  if(!ok)return;
+  window.addEventListener("load",function(){
+    try{ navigator.serviceWorker.register("sw.js").catch(function(){}); }catch(e){}
+  });
+})();
+</script>
+</body>
+</html>

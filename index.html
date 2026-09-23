@@ -87,6 +87,8 @@
   .fld:focus{background:rgba(240,160,60,.17);}
   body.shoot .fld:focus{background:transparent;}
   .fld.ctr{text-align:center;padding:0;}
+  .fld.note{padding:6px 12px;line-height:1.36;text-align:left;resize:none;
+            overflow:auto;-webkit-overflow-scrolling:touch;}
   .fld.date{border-bottom:2px solid #dcdcdc;}
   body.shoot .fld.date{border-bottom-color:transparent;}
 
@@ -196,7 +198,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260923-1144";</script>
+<script>window.__BUILD__="20260923-115608";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -340,16 +342,24 @@
     if(mode)n.setAttribute("inputmode",mode);
     board.appendChild(n); return n;
   }
+  function area(id,x,y,w,h,size){
+    var n=el("textarea","fld note",{left:px(x),top:px(y),width:px(w),height:px(h),
+      fontSize:px(size)});
+    n.id=id; n.spellcheck=false; n.autocapitalize="off"; n.autocomplete="off";
+    board.appendChild(n); return n;
+  }
+
   var fNo    = field("f-no",   154, 27,137,111,54,"center","",  "numeric");
   var fYear  = field("f-year", 0,0,0,0,36,"center","","numeric");
   var fMon   = field("f-mon",  0,0,0,0,36,"center","","numeric");
   var fDay   = field("f-day",  0,0,0,0,36,"center","","numeric");
   var fBldg  = field("f-bldg", 154,138,137,112,54,"center","",  "numeric");
-  var fOwner = field("f-owner",414,138,396,112,48,"left","");
-  var fPlace = field("f-place", 99,250,438,145,44,"left","");
+  var fOwner = field("f-owner",414,138,396,112,72,"center","");
+  var fPlace = field("f-place", 99,250,438,145,88,"center","");
   var fPhoto = field("f-photo",605,250,205,145,54,"center","","numeric");
   var fW     = field("f-w",    478,486,327, 72,60,"left","");
   var fL     = field("f-l",    478,596,327, 72,60,"left","");
+  var fNote  = area("f-note",  367,690,428,300,38);
 
   // 令和 □年 □月 □日
   (function(){
@@ -371,6 +381,31 @@
     row.appendChild(lit("日"));
     board.appendChild(row);
   })();
+
+  /* ---- 所有者・場所は枠に収まる最大の文字サイズにする ---- */
+  var FITFONT='700 %dpx "Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic","MS Gothic",sans-serif';
+  var measCtx=document.createElement("canvas").getContext("2d");
+  var AUTOFIT=[];
+  function autoFit(inp,maxSize,minSize){
+    function run(){
+      var t=inp.value||"";
+      var cs=window.getComputedStyle(inp);
+      var avail=inp.clientWidth-(parseFloat(cs.paddingLeft)||0)-(parseFloat(cs.paddingRight)||0);
+      var size=maxSize;
+      if(t&&avail>0){
+        measCtx.font=FITFONT.replace("%d",maxSize);
+        var w=measCtx.measureText(t).width;
+        if(w>avail) size=Math.max(minSize,Math.floor(maxSize*avail/w));
+      }
+      inp.style.fontSize=size+"px";
+    }
+    inp.addEventListener("input",run);
+    AUTOFIT.push(run);
+    run();
+  }
+  function runAutoFit(){ for(var i=0;i<AUTOFIT.length;i++)AUTOFIT[i](); }
+  autoFit(fOwner,72,20);
+  autoFit(fPlace,88,20);
 
   /* ---- 丸囲いレイヤー ---- */
   var SVGNS="http://www.w3.org/2000/svg";
@@ -560,7 +595,7 @@
     return {
       no:fNo.value, year:fYear.value, mon:fMon.value, day:fDay.value,
       bldg:fBldg.value, owner:fOwner.value, place:fPlace.value, photo:fPhoto.value,
-      w:fW.value, l:fL.value, dateEditedOn:dateEditedOn,
+      w:fW.value, l:fL.value, note:fNote.value, dateEditedOn:dateEditedOn,
       circled:Object.keys(circled).filter(function(n){return circled[n];}),
       strokes:strokes
     };
@@ -573,7 +608,7 @@
       lsSet(KEY_R,JSON.stringify(records));
     },250);
   }
-  [fNo,fYear,fMon,fDay,fBldg,fOwner,fPlace,fPhoto,fW,fL].forEach(function(f){
+  [fNo,fYear,fMon,fDay,fBldg,fOwner,fPlace,fPhoto,fW,fL,fNote].forEach(function(f){
     f.addEventListener("input",persist);
   });
   [fYear,fMon,fDay].forEach(function(f){
@@ -595,8 +630,10 @@
       }
       fBldg.value=st.bldg||""; fOwner.value=st.owner||""; fPlace.value=st.place||"";
       fPhoto.value=st.photo||""; fW.value=st.w||""; fL.value=st.l||"";
+      fNote.value=st.note||"";
       (st.circled||[]).forEach(function(n){ setCircle(n,true); });
       strokes=(st.strokes||[]).filter(function(x){return x&&x.pts;});
+      runAutoFit();
     }else{
       setToday();
       fNo.value="1"; fPhoto.value="1";
@@ -622,6 +659,7 @@
       extra:circledOf("extra").join("・"),
       w:fW.value.trim(),
       l:fL.value.trim(),
+      note:fNote.value.trim(),
       at:new Date().toISOString().slice(0,19).replace("T"," ")
     };
     records.push(rec);
@@ -629,21 +667,21 @@
     fNo.value=bump(fNo.value);
     fPhoto.value=bump(fPhoto.value);
     clearCircles(); strokes=[]; redrawInk();
-    fW.value=""; fL.value="";
+    fW.value=""; fL.value=""; fNote.value="";
     renderCount(); persist();
     toast("保存しました（"+records.length+"件）");
   }
 
   function clearFace(){
     clearCircles(); strokes=[]; redrawInk();
-    fW.value=""; fL.value="";
+    fW.value=""; fL.value=""; fNote.value="";
     persist(); toast("この面をクリアしました");
   }
 
   /* ---- CSV ---- */
   var COLS=[["no","調査番号"],["date","調査年月日"],["bldg","建物番号"],["owner","所有者"],
             ["place","場所"],["photo","写真番号"],["part","部位"],["damage","損傷種類"],
-            ["extra","補足"],["w","W"],["l","L"],["at","保存時刻"]];
+            ["extra","補足"],["w","W"],["l","L"],["note","備考"],["at","保存時刻"]];
   function csvCell(v){
     v=v==null?"":String(v);
     return /[",\r\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
@@ -857,7 +895,7 @@
   fit();
   redrawInk();
   keepAwake();
-  if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fit);
+  if(document.fonts&&document.fonts.ready)document.fonts.ready.then(function(){fit();runAutoFit();});
 })();
 </script>
 <script>

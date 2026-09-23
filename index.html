@@ -87,8 +87,10 @@
   .fld:focus{background:rgba(240,160,60,.17);}
   body.shoot .fld:focus{background:transparent;}
   .fld.ctr{text-align:center;padding:0;}
-  .fld.note{padding:6px 12px;line-height:1.36;text-align:left;resize:none;
-            overflow:auto;-webkit-overflow-scrolling:touch;}
+  .fld.note{padding:6px 12px;text-align:left;resize:none;overflow:hidden;
+            white-space:pre;}
+  .fld.owner{padding:0 10px;text-align:center;resize:none;overflow:hidden;
+             white-space:pre;}
   .fld.date{border-bottom:2px solid #dcdcdc;}
   body.shoot .fld.date{border-bottom-color:transparent;}
 
@@ -198,7 +200,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260923-120519";</script>
+<script>window.__BUILD__="20260923-122207";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -342,10 +344,11 @@
     if(mode)n.setAttribute("inputmode",mode);
     board.appendChild(n); return n;
   }
-  function area(id,x,y,w,h,size){
-    var n=el("textarea","fld note",{left:px(x),top:px(y),width:px(w),height:px(h),
-      fontSize:px(size)});
+  function area(id,x,y,w,h,size,cls){
+    var n=el("textarea","fld "+(cls||"note"),{left:px(x),top:px(y),width:px(w),
+      height:px(h),fontSize:px(size)});
     n.id=id; n.spellcheck=false; n.autocapitalize="off"; n.autocomplete="off";
+    n.wrap="off";
     board.appendChild(n); return n;
   }
 
@@ -354,7 +357,7 @@
   var fMon   = field("f-mon",  0,0,0,0,36,"center","","numeric");
   var fDay   = field("f-day",  0,0,0,0,36,"center","","numeric");
   var fBldg  = field("f-bldg", 154,138,137,112,54,"center","",  "numeric");
-  var fOwner = field("f-owner",414,138,396,112,72,"center","");
+  var fOwner = area("f-owner", 414,138,396,112,72,"owner");
   var fPlace = field("f-place", 99,250,438,145,88,"center","");
   var fPhoto = field("f-photo",605,250,205,145,54,"center","","numeric");
   var fW     = field("f-w",    478,486,327, 72,60,"left","");
@@ -424,11 +427,47 @@
     run();
   }
   function runAutoFit(){ for(var i=0;i<AUTOFIT.length;i++)AUTOFIT[i](); }
+
+  // 複数行用。改行はそのまま維持し、行数と一番長い行から入る最大サイズを決める
+  function autoFitMulti(inp,maxSize,minSize,lh,center){
+    var H=parseFloat(inp.style.height)||inp.clientHeight;
+    function run(){
+      var cs=window.getComputedStyle(inp);
+      var availW=(parseFloat(inp.style.width)||inp.clientWidth)
+                 -(parseFloat(cs.paddingLeft)||0)-(parseFloat(cs.paddingRight)||0);
+      var lines=String(inp.value||"").split("\n");
+      var n=Math.max(1,lines.length);
+      var size=Math.floor(H/(n*lh));
+      if(size>maxSize)size=maxSize;
+      measCtx.font=FITFONT.replace("%d",100);
+      var widest=0;
+      for(var i=0;i<lines.length;i++){
+        var w=measCtx.measureText(lines[i]).width;
+        if(w>widest)widest=w;
+      }
+      if(widest>0&&availW>0){
+        var byW=Math.floor(100*availW/widest);
+        if(byW<size)size=byW;
+      }
+      if(size<minSize)size=minSize;
+      inp.style.fontSize=size+"px";
+      inp.style.lineHeight=lh;
+      if(center){
+        var textH=n*size*lh;
+        var pad=Math.max(0,Math.floor((H-textH)/2));
+        inp.style.paddingTop=pad+"px"; inp.style.paddingBottom="0px";
+      }
+    }
+    inp.addEventListener("input",run);
+    AUTOFIT.push(run);
+    run();
+  }
   [fNo,fBldg,fPhoto].forEach(function(f){ f.style.padding="0 8px"; });
   autoFit(fNo,   80,18);
   autoFit(fBldg, 80,18);
   autoFit(fPhoto,104,18);
-  autoFit(fOwner, 72,20);
+  autoFitMulti(fOwner,84,16,1.15,true);
+  autoFitMulti(fNote, 72,16,1.25,false);
   autoFit(fPlace, 88,20);
   if(fitDate){
     AUTOFIT.push(fitDate);

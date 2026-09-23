@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="電子白板">
 <meta name="theme-color" content="#12171b">
 <meta name="color-scheme" content="light">
@@ -196,7 +196,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260923-1133";</script>
+<script>window.__BUILD__="20260923-1144";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -507,10 +507,13 @@
   var scale=1;
   var stage=document.getElementById("stage");
   var wrap=document.getElementById("boardWrap");
+  var FS_TOP=0;    // 全画面は使わないので余白なし
   function fit(){
-    var pad=document.body.classList.contains("shoot")?0:10;
-    stage.style.padding=px(pad);
-    var aw=stage.clientWidth-pad*2, ah=stage.clientHeight-pad*2;
+    var shoot=document.body.classList.contains("shoot");
+    var fs=document.body.classList.contains("fs");
+    var pt=shoot?(fs?FS_TOP:0):10, ps=shoot?0:10, pb=shoot?0:10;
+    stage.style.padding=pt+"px "+ps+"px "+pb+"px";
+    var aw=stage.clientWidth-ps*2, ah=stage.clientHeight-pt-pb;
     scale=Math.min(aw/BW,ah/BH);
     if(!isFinite(scale)||scale<=0)scale=1;
     board.style.transform="scale("+scale+")";
@@ -796,6 +799,7 @@
   }
   function onFsChange(){
     var on=!!fsEl();
+    document.body.classList.toggle("fs",on);
     if(on){ enteredFS=true; }
     else if(enteredFS){
       enteredFS=false;
@@ -812,7 +816,7 @@
     var r=document.documentElement;
     if(on){ r.style.paddingTop="0px"; r.style.paddingBottom="0px"; }
     else  { r.style.paddingTop="";    r.style.paddingBottom="";    }
-    if(on)enterFS(); else exitFS();
+    exitFS();
     fit();
   }
   document.getElementById("bShoot").addEventListener("click",function(){ setShoot(true); });

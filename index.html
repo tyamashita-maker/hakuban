@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="電子白板">
 <meta name="theme-color" content="#12171b">
 <meta name="color-scheme" content="light">
@@ -53,6 +53,14 @@
     flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
     padding:10px;box-sizing:border-box;
   }
+  /* 撮影時は画面全体を白にする。
+     iOSのステータスバー（時刻・電池）は白文字なので、白地に重なって見えなくなる。
+     iPadごと写真に写る使い方なので、構図では外せないための対策。 */
+  body.shoot{background:#fff;}
+  body.shoot #stage{align-items:flex-start;background:#fff;}
+  body.shoot #board{box-shadow:none;}
+  body.shoot #handle{background:#f4f4f4;}
+  body.shoot #handle span{background:#d6d6d6;}
   #boardWrap{position:relative;}
   #board{
     position:relative;width:842px;height:1191px;
@@ -496,7 +504,7 @@
   var stage=document.getElementById("stage");
   var wrap=document.getElementById("boardWrap");
   function fit(){
-    var pad=document.body.classList.contains("shoot")?4:10;
+    var pad=document.body.classList.contains("shoot")?0:10;
     stage.style.padding=px(pad);
     var aw=stage.clientWidth-pad*2, ah=stage.clientHeight-pad*2;
     scale=Math.min(aw/BW,ah/BH);
@@ -797,6 +805,9 @@
   function setShoot(on){
     document.body.classList.toggle("shoot",on);
     if(on&&document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+    var r=document.documentElement;
+    if(on){ r.style.paddingTop="0px"; r.style.paddingBottom="0px"; }
+    else  { r.style.paddingTop="";    r.style.paddingBottom="";    }
     if(on)enterFS(); else exitFS();
     fit();
   }
@@ -832,7 +843,6 @@
 })();
 </script>
 <script>
-/* オフラインで動かすための登録。file:// や claude.ai では何もしない */
 (function(){
   var ok = ("serviceWorker" in navigator) &&
            (location.protocol==="https:"||location.hostname==="localhost"||location.hostname==="127.0.0.1");

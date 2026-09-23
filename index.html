@@ -196,7 +196,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260923-1131";</script>
+<script>window.__BUILD__="20260923-1133";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -838,10 +838,14 @@
     if(document.visibilityState==="visible"&&!lock)keepAwake();
   });
 
-  /* ---- 版番号（更新できているかの確認用）---- */
+  /* ---- 版番号と動作環境（切り分け用）---- */
   (function(){
     var t=document.getElementById("verTag");
-    if(t) t.textContent = "版 " + (window.__BUILD__ || "claude.ai");
+    if(!t)return;
+    var mode = window.navigator.standalone ? "ホーム画面アプリ" : "ブラウザ";
+    var e=document.documentElement;
+    var fs = !!(e.requestFullscreen||e.webkitRequestFullscreen);
+    t.textContent = "版 "+(window.__BUILD__||"claude.ai")+" ／ "+mode+" ／ 全画面"+(fs?"○":"×");
   })();
 
   /* ---- 起動 ---- */

@@ -130,6 +130,28 @@
     background:rgba(255,255,255,.14);font-size:13px;font-weight:700;
   }
 
+  /* 撮影時の白黒反転 */
+  body.shoot.inv,body.shoot.inv #stage{background:#000;}
+  body.shoot.inv #board{background:#000;color:#fff;}
+  body.shoot.inv .ln{background:#fff;}
+  body.shoot.inv .fld{color:#fff;}
+  body.shoot.inv #marks ellipse{stroke:#fff;}
+  body.shoot.inv #handle{background:#0d0d0d;}
+  body.shoot.inv #handle span{background:#454545;}
+
+  /* 撮影の設定 */
+  #opts{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:14px;
+        background:var(--chrome-2);}
+  #opts h3{margin:0 0 10px;font-size:13px;font-weight:700;letter-spacing:.06em;
+           color:var(--ink-dim);}
+  .optrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;}
+  .optrow:last-child{margin-bottom:0;}
+  .optlab{font-size:13px;color:var(--ink-dim);min-width:104px;}
+  .seg{font-family:var(--gothic);font-size:14px;font-weight:700;color:var(--ink);
+       background:var(--chrome-3);border:1px solid var(--line);border-radius:8px;
+       padding:9px 13px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .seg[aria-pressed="true"]{background:var(--amber);border-color:var(--amber);color:#1a1205;}
+
   /* 保存できない環境の警告帯 */
   #warn{
     flex:0 0 auto;display:none;gap:8px;align-items:flex-start;
@@ -201,7 +223,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260923-131828";</script>
+<script>window.__BUILD__="20260924-085201";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -634,12 +656,13 @@
     var r=board.getBoundingClientRect();
     return [(e.clientX-r.left)/scale,(e.clientY-r.top)/scale];
   }
+  var inkColor="#000";
   function penStyle(){
-    ctx.lineWidth=4; ctx.lineCap="round"; ctx.lineJoin="round"; ctx.strokeStyle="#000";
+    ctx.lineWidth=4; ctx.lineCap="round"; ctx.lineJoin="round"; ctx.strokeStyle=inkColor;
   }
   function dot(p){
     ctx.beginPath(); ctx.arc(p[0],p[1],2,0,Math.PI*2);
-    ctx.fillStyle="#000"; ctx.fill();
+    ctx.fillStyle=inkColor; ctx.fill();
   }
   // 線を伸ばした分だけ描き足す（毎回全部描き直すと古い機種で重くなるため）
   function extend(from,pts){
@@ -892,8 +915,37 @@
   var sheetBody=document.getElementById("sheetBody");
   function renderCount(){ document.getElementById("cCount").textContent=records.length; }
 
+  function optionsBlock(){
+    var box=el("div"); box.id="opts";
+    var h=el("h3"); h.textContent="撮影の設定"; box.appendChild(h);
+    [
+      {key:"mode",label:"撮影時の表示",
+       items:[["selected","選んだ項目だけ"],["all","全項目＋丸囲い"]]},
+      {key:"inv", label:"撮影時の配色",
+       items:[[false,"白地に黒"],[true,"黒地に白"]]}
+    ].forEach(function(row){
+      var r=el("div","optrow");
+      var lab=el("span","optlab"); lab.textContent=row.label; r.appendChild(lab);
+      row.items.forEach(function(it){
+        var b=el("button","seg"); b.type="button"; b.textContent=it[1];
+        b.setAttribute("aria-pressed", OPT[row.key]===it[0] ? "true":"false");
+        b.addEventListener("click",function(){
+          OPT[row.key]=it[0]; saveOpt();
+          [].forEach.call(r.querySelectorAll(".seg"),function(x){
+            x.setAttribute("aria-pressed", x===b ? "true":"false");
+          });
+          applyShootLook();
+        });
+        r.appendChild(b);
+      });
+      box.appendChild(r);
+    });
+    return box;
+  }
+
   function renderSheet(){
     sheetBody.innerHTML="";
+    sheetBody.appendChild(optionsBlock());
     if(!records.length){
       var p=el("div","empty");
       p.textContent="まだ記録がありません。白板を書いて「保存して次へ」を押すと、ここに1行ずつ溜まります。";
@@ -986,10 +1038,30 @@
   document.addEventListener("fullscreenchange",onFsChange);
   document.addEventListener("webkitfullscreenchange",onFsChange);
 
+  var KEY_O="jsb.opt.v1";
+  var OPT={mode:"selected",inv:false};
+  (function(){
+    var raw=lsGet(KEY_O);
+    if(raw){ try{ var v=JSON.parse(raw);
+      if(v&&(v.mode==="selected"||v.mode==="all"))OPT.mode=v.mode;
+      OPT.inv=!!(v&&v.inv);
+    }catch(e){} }
+  })();
+  function saveOpt(){ lsSet(KEY_O,JSON.stringify(OPT)); }
+
+  // 撮影モードの見た目を設定に合わせて作り直す
+  function applyShootLook(){
+    var on=document.body.classList.contains("shoot");
+    document.body.classList.toggle("inv",on&&OPT.inv);
+    if(on&&OPT.mode==="selected") layoutShoot(); else restoreLayout();
+    inkColor=(on&&OPT.inv)?"#fff":"#000";
+    redrawInk();
+  }
+
   function setShoot(on){
     document.body.classList.toggle("shoot",on);
     if(on&&document.activeElement&&document.activeElement.blur)document.activeElement.blur();
-    if(on)layoutShoot(); else restoreLayout();
+    applyShootLook();
     var r=document.documentElement;
     if(on){ r.style.paddingTop="0px"; r.style.paddingBottom="0px"; }
     else  { r.style.paddingTop="";    r.style.paddingBottom="";    }

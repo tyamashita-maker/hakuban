@@ -198,7 +198,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260923-115608";</script>
+<script>window.__BUILD__="20260923-120519";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -361,25 +361,45 @@
   var fL     = field("f-l",    478,596,327, 72,60,"left","");
   var fNote  = area("f-note",  367,690,428,300,38);
 
-  // 令和 □年 □月 □日
+  // 令和 □年 □月 □日（数字欄を中身ぴったりに詰めて、行全体を枠いっぱいに拡大する）
+  var fitDate;
   (function(){
-    var row=el("div","lbl",{left:px(414),top:px(46),width:px(396),height:px(72),
-      fontSize:px(36),display:"flex",alignItems:"center",justifyContent:"center",gap:px(2)});
-    function lit(s){var n=el("span",null,{padding:"0 2px"});n.textContent=s;return n;}
-    function slot(inp,w){
-      inp.style.position="static"; inp.style.width=px(w); inp.style.height=px(46);
-      inp.style.fontSize=px(36); inp.style.padding="0";
+    var row=el("div","lbl",{left:px(414),top:px(27),width:px(396),height:px(111),
+      fontSize:px(36),display:"flex",alignItems:"center",justifyContent:"center"});
+    var inner=el("div",null,{display:"flex",alignItems:"center",whiteSpace:"nowrap",
+      fontSize:px(36),lineHeight:"1",transformOrigin:"50% 50%"});
+    function lit(t){var n=el("span",null,{padding:"0 3px"});n.textContent=t;return n;}
+    function slot(inp){
+      inp.style.position="static"; inp.style.height=px(46);
+      inp.style.fontSize=px(36); inp.style.padding="0"; inp.style.textAlign="center";
       return inp;
     }
-    [fYear,fMon,fDay].forEach(function(f){ f.classList.add("date"); });
-    row.appendChild(lit("令和"));
-    row.appendChild(slot(fYear,52));
-    row.appendChild(lit("年"));
-    row.appendChild(slot(fMon,52));
-    row.appendChild(lit("月"));
-    row.appendChild(slot(fDay,52));
-    row.appendChild(lit("日"));
+    inner.appendChild(lit("令和"));
+    inner.appendChild(slot(fYear));
+    inner.appendChild(lit("年"));
+    inner.appendChild(slot(fMon));
+    inner.appendChild(lit("月"));
+    inner.appendChild(slot(fDay));
+    inner.appendChild(lit("日"));
+    row.appendChild(inner);
     board.appendChild(row);
+
+    function widthOf(inp){
+      var t=inp.value||"0";
+      measCtx.font=FITFONT.replace("%d",36);
+      return Math.max(26,Math.ceil(measCtx.measureText(t).width)+10);
+    }
+    fitDate=function(){
+      fYear.style.width=px(widthOf(fYear));
+      fMon.style.width =px(widthOf(fMon));
+      fDay.style.width =px(widthOf(fDay));
+      inner.style.transform="scale(1)";
+      var w=inner.offsetWidth, h=inner.offsetHeight;
+      if(!w||!h)return;
+      var k=Math.min((396-14)/w,(111-12)/h);
+      if(k<0.5)k=0.5;
+      inner.style.transform="scale("+k+")";
+    };
   })();
 
   /* ---- 所有者・場所は枠に収まる最大の文字サイズにする ---- */
@@ -404,8 +424,17 @@
     run();
   }
   function runAutoFit(){ for(var i=0;i<AUTOFIT.length;i++)AUTOFIT[i](); }
-  autoFit(fOwner,72,20);
-  autoFit(fPlace,88,20);
+  [fNo,fBldg,fPhoto].forEach(function(f){ f.style.padding="0 8px"; });
+  autoFit(fNo,   80,18);
+  autoFit(fBldg, 80,18);
+  autoFit(fPhoto,104,18);
+  autoFit(fOwner, 72,20);
+  autoFit(fPlace, 88,20);
+  if(fitDate){
+    AUTOFIT.push(fitDate);
+    [fYear,fMon,fDay].forEach(function(f){ f.addEventListener("input",fitDate); });
+    fitDate();
+  }
 
   /* ---- 丸囲いレイヤー ---- */
   var SVGNS="http://www.w3.org/2000/svg";
@@ -663,9 +692,10 @@
       at:new Date().toISOString().slice(0,19).replace("T"," ")
     };
     records.push(rec);
-    // 次の1枚へ：番号は繰り上げ、物件情報は残す
-    fNo.value=bump(fNo.value);
+    // 次の1枚へ：写真番号だけ繰り上げる。
+    // 調査番号は同じ損傷を複数枚撮るので据え置き（変えるときは手で直す）
     fPhoto.value=bump(fPhoto.value);
+    runAutoFit();
     clearCircles(); strokes=[]; redrawInk();
     fW.value=""; fL.value=""; fNote.value="";
     renderCount(); persist();

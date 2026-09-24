@@ -232,7 +232,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260924-091317";</script>
+<script>window.__BUILD__="20260924-103729";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -361,9 +361,9 @@
   // W= / L=（等幅にして「=」と入力欄の開始位置をそろえる）
   function wl(str,y){
     var n=el("div","wl",{left:px(379),top:px(y),fontSize:px(72),height:px(72)});
-    n.textContent=str; board.appendChild(n);
+    n.textContent=str; board.appendChild(n); return n;
   }
-  wl("W=",486); wl("L=",596);
+  var labW=wl("W=",486), labL=wl("L=",596);
 
   /* ---- 入力欄 ---- */
   function field(id,x,y,w,h,size,align,ph,mode){
@@ -1135,6 +1135,14 @@
   })();
   function saveOpt(){ lsSet(KEY_O,JSON.stringify(OPT)); }
 
+  // 撮影時、W= / L= は値が無ければ消す（「選んだ項目だけ」のときのみ）
+  function updateWL(){
+    var sel=document.body.classList.contains("shoot")&&OPT.mode==="selected";
+    labW.style.display=(sel&&!fW.value.trim())?"none":"";
+    labL.style.display=(sel&&!fL.value.trim())?"none":"";
+  }
+  [fW,fL].forEach(function(f){ f.addEventListener("input",updateWL); });
+
   // 撮影モードの見た目を設定に合わせて作り直す
   function applyShootLook(){
     var on=document.body.classList.contains("shoot");
@@ -1144,6 +1152,7 @@
     }
     document.body.classList.toggle("inv",on&&OPT.inv);
     if(on&&OPT.mode==="selected") layoutShoot(); else restoreLayout();
+    updateWL();
     if(typeof syncMirrors!=="undefined") syncMirrors(on);
     inkColor=(on&&OPT.inv)?"#fff":"#000";
     redrawInk();

@@ -91,6 +91,7 @@
   .mir{box-sizing:border-box;font-weight:700;color:#000;white-space:pre;
        overflow:hidden;pointer-events:none;display:none;}
   .mir.abs{position:absolute;}
+  body.shoot .mir{pointer-events:auto;cursor:text;}
   body.shoot.inv .mir{color:#fff;}
 
   /* 撮影中は入力欄を操作不可にする。iOSが文字を薄くするので色を指定し直す */
@@ -113,7 +114,6 @@
   #ink{position:absolute;left:0;top:0;width:842px;height:1191px;touch-action:none;pointer-events:none;}
   body.pen #ink{pointer-events:auto;}
   body.pen .hit,body.pen .fld{pointer-events:none;}
-  body.shoot .hit{pointer-events:none;}
 
   /* ---------- 操作バー ---------- */
   #bar{
@@ -232,7 +232,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260924-090646";</script>
+<script>window.__BUILD__="20260924-091317";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -523,9 +523,12 @@
   [fYear,fMon,fDay].forEach(function(f){ addMirror(f,"inline"); });
 
   function syncMirrors(on){
-    for(var i=0;i<MIRRORS.length;i++){
-      var o=MIRRORS[i], m=o.m, inp=o.inp;
-      if(!on){ m.style.display="none"; inp.style.display=""; continue; }
+    for(var i=0;i<MIRRORS.length;i++) syncOne(MIRRORS[i],on);
+  }
+  function syncOne(o,on){
+    {
+      var m=o.m, inp=o.inp;
+      if(!on){ m.style.display="none"; inp.style.display=""; return; }
       var cs=window.getComputedStyle(inp);
       m.textContent=inp.value;
       m.style.fontSize=cs.fontSize;
@@ -552,6 +555,31 @@
       inp.style.display="none";
     }
   }
+
+  // 撮影中に文字をタップしたら、その欄だけ一時的に入力欄へ戻す。
+  // 入力を終えて他所を触ったら、また「ただの文字」に戻す。
+  MIRRORS.forEach(function(o){
+    o.m.addEventListener("click",function(){
+      if(!document.body.classList.contains("shoot"))return;
+      o.m.style.display="none";
+      o.inp.style.display="";
+      o.inp.disabled=false;
+      o.inp.focus();
+      try{ o.inp.setSelectionRange(o.inp.value.length,o.inp.value.length); }catch(e){}
+    });
+    o.inp.addEventListener("focusout",function(){
+      if(!document.body.classList.contains("shoot"))return;
+      o.inp.disabled=true;
+      syncOne(o,true);
+    });
+  });
+
+  // 撮影中に白板の何もない所を触ったら、編集を終える
+  board.addEventListener("pointerdown",function(e){
+    if(!document.body.classList.contains("shoot"))return;
+    var a=document.activeElement;
+    if(a&&a!==e.target&&a.blur&&(a.tagName==="INPUT"||a.tagName==="TEXTAREA")) a.blur();
+  },true);
 
   /* ---- 丸囲いレイヤー ---- */
   var SVGNS="http://www.w3.org/2000/svg";
@@ -587,7 +615,7 @@
     board.appendChild(b);
     var lab=LABELS[name]||null;
     return {name:name,group:group,btn:b,ell:e,label:lab,
-            css:lab?lab.style.cssText:"",
+            css:lab?lab.style.cssText:"", bcss:b.style.cssText,
             ell0:{cx:cx,cy:cy,rx:rx,ry:ry,tr:e.getAttribute("transform")}};
   }
 
@@ -630,6 +658,7 @@
     Object.keys(hits).forEach(function(n){
       var h=hits[n];
       if(h.label) h.label.style.display = circled[n] ? "" : "none";
+      h.btn.style.display = circled[n] ? "" : "none";
       h.ell.style.display="none";   // 選んだものしか出ないので丸囲いは不要
     });
     SHOOT_GROUPS.forEach(function(G){
@@ -657,6 +686,9 @@
           st.fontSize=px(size); st.textAlign="center"; st.justifyContent="center";
           st.lineHeight="1";
         }
+        // タップ位置も文字に合わせて動かす
+        h.btn.style.left=px(G.x); h.btn.style.top=px(y-12);
+        h.btn.style.width=px(G.w); h.btn.style.height=px(size+24);
         var tw=widthAt100(n)*size/100;
         var cx=G.x+G.w/2, cy=y+size/2;
         h.ell.setAttribute("cx",cx); h.ell.setAttribute("cy",cy);
@@ -672,6 +704,7 @@
     Object.keys(hits).forEach(function(n){
       var h=hits[n];
       if(h.label){ h.label.style.cssText=h.css; h.label.style.display=""; }
+      h.btn.style.cssText=h.bcss; h.btn.style.display="";
       h.ell.style.display = circled[n] ? "" : "none";
       var o=h.ell0;
       h.ell.setAttribute("cx",o.cx); h.ell.setAttribute("cy",o.cy);

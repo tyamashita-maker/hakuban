@@ -87,6 +87,9 @@
   .fld:focus{background:rgba(240,160,60,.17);}
   body.shoot .fld:focus{background:transparent;}
   .fld.ctr{text-align:center;padding:0;}
+  /* 撮影中は入力欄を操作不可にする。iOSが文字を薄くするので色を指定し直す */
+  .fld:disabled{opacity:1;color:#000;-webkit-text-fill-color:#000;}
+  body.shoot.inv .fld:disabled{color:#fff;-webkit-text-fill-color:#fff;}
   .fld.note{padding:6px 12px;text-align:left;resize:none;overflow:hidden;
             white-space:pre;}
   .fld.owner{padding:0 10px;text-align:center;resize:none;overflow:hidden;
@@ -223,7 +226,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260924-085201";</script>
+<script>window.__BUILD__="20260924-090126";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -363,6 +366,7 @@
       textAlign:align||"left"
     });
     n.type="text"; n.id=id; n.autocomplete="off"; n.autocapitalize="off";
+    n.setAttribute("autocorrect","off");
     n.spellcheck=false;
     if(ph)n.placeholder=ph;
     if(mode)n.setAttribute("inputmode",mode);
@@ -372,6 +376,7 @@
     var n=el("textarea","fld "+(cls||"note"),{left:px(x),top:px(y),width:px(w),
       height:px(h),fontSize:px(size)});
     n.id=id; n.spellcheck=false; n.autocapitalize="off"; n.autocomplete="off";
+    n.setAttribute("autocorrect","off");
     n.wrap="off";
     board.appendChild(n); return n;
   }
@@ -768,9 +773,8 @@
       lsSet(KEY_R,JSON.stringify(records));
     },250);
   }
-  [fNo,fYear,fMon,fDay,fBldg,fOwner,fPlace,fPhoto,fW,fL,fNote].forEach(function(f){
-    f.addEventListener("input",persist);
-  });
+  var FIELDS=[fNo,fYear,fMon,fDay,fBldg,fOwner,fPlace,fPhoto,fW,fL,fNote];
+  FIELDS.forEach(function(f){ f.addEventListener("input",persist); });
   [fYear,fMon,fDay].forEach(function(f){
     f.addEventListener("input",function(){ dateEditedOn=todayISO(); });
   });
@@ -1052,6 +1056,10 @@
   // 撮影モードの見た目を設定に合わせて作り直す
   function applyShootLook(){
     var on=document.body.classList.contains("shoot");
+    // 撮影中は入力欄を操作不可に。日本語入力の未確定下線・カーソル・選択範囲が消える
+    if(typeof FIELDS!=="undefined"){
+      for(var i=0;i<FIELDS.length;i++) FIELDS[i].disabled=on;
+    }
     document.body.classList.toggle("inv",on&&OPT.inv);
     if(on&&OPT.mode==="selected") layoutShoot(); else restoreLayout();
     inkColor=(on&&OPT.inv)?"#fff":"#000";

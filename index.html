@@ -148,6 +148,20 @@
   body.shoot.inv #handle{background:#0d0d0d;}
   body.shoot.inv #handle span{background:#454545;}
 
+  /* 入力中だけ出る記号バー（キーボードの上） */
+  #symbar{
+    position:fixed;left:0;right:0;bottom:0;z-index:50;display:none;
+    gap:6px;justify-content:center;flex-wrap:wrap;
+    background:var(--chrome-2);border-top:1px solid var(--line);
+    padding:7px 10px;padding-bottom:calc(7px + env(safe-area-inset-bottom,0px));
+  }
+  body.editing #symbar{display:flex;}
+  .sym{font-family:var(--gothic);font-size:19px;font-weight:700;color:var(--ink);
+       background:var(--chrome-3);border:1px solid var(--line);border-radius:8px;
+       min-width:54px;min-height:44px;padding:0 8px;cursor:pointer;
+       -webkit-tap-highlight-color:transparent;}
+  .sym:active{background:var(--amber);color:#1a1205;}
+
   /* 撮影の設定 */
   #opts{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:14px;
         background:var(--chrome-2);}
@@ -232,7 +246,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260926-174825";</script>
+<script>window.__BUILD__="20260926-175653";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -263,6 +277,8 @@
     <span class="ver" id="verTag"></span>
   </div>
 </div>
+
+<div id="symbar" aria-label="記号"></div>
 
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -869,6 +885,56 @@
   }
   var FIELDS=[fNo,fYear,fMon,fDay,fBldg,fOwner,fPlace,fPhoto,fW,fL,fN1,fN2,fN3];
   FIELDS.forEach(function(f){ f.addEventListener("input",persist); });
+
+  /* ---- 記号バー ----
+     手書きでは認識されにくい記号を、タップで入れられるようにする  */
+  (function(){
+    var bar=document.getElementById("symbar");
+    if(!bar)return;
+    ["±","×","－","φ","°","〜","/","mm","cm"].forEach(function(t){
+      var b=el("button","sym"); b.type="button"; b.textContent=t;
+      // 押しても入力欄のフォーカスを外さない
+      b.addEventListener("pointerdown",function(e){ e.preventDefault(); });
+      b.addEventListener("mousedown",function(e){ e.preventDefault(); });
+      b.addEventListener("click",function(){ insertSym(t); });
+      bar.appendChild(b);
+    });
+    function insertSym(t){
+      var a=document.activeElement;
+      if(!a||(a.tagName!=="INPUT"&&a.tagName!=="TEXTAREA"))return;
+      var st=a.selectionStart, en=a.selectionEnd;
+      if(typeof st!=="number"){ a.value=a.value+t; }
+      else{
+        a.value=a.value.slice(0,st)+t+a.value.slice(en);
+        var pos=st+t.length;
+        try{ a.setSelectionRange(pos,pos); }catch(e){}
+      }
+      a.dispatchEvent(new Event("input",{bubbles:true}));
+    }
+    // キーボードの高さに合わせてバーを置く
+    function placeBar(){
+      var vv=window.visualViewport;
+      if(!vv){ bar.style.bottom="0px"; return; }
+      var b=Math.round(window.innerHeight-vv.height-vv.offsetTop);
+      bar.style.bottom=(b>0?b:0)+"px";
+    }
+    if(window.visualViewport){
+      window.visualViewport.addEventListener("resize",placeBar);
+      window.visualViewport.addEventListener("scroll",placeBar);
+    }
+    FIELDS.forEach(function(f){
+      f.addEventListener("focus",function(){
+        document.body.classList.add("editing"); placeBar();
+      });
+      f.addEventListener("blur",function(){
+        setTimeout(function(){
+          var a=document.activeElement;
+          if(!a||(a.tagName!=="INPUT"&&a.tagName!=="TEXTAREA"))
+            document.body.classList.remove("editing");
+        },0);
+      });
+    });
+  })();
   [fYear,fMon,fDay].forEach(function(f){
     f.addEventListener("input",function(){ dateEditedOn=todayISO(); });
   });

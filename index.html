@@ -232,7 +232,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260926-173903";</script>
+<script>window.__BUILD__="20260926-174825";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -927,6 +927,8 @@
     // 調査番号は所有者番号なので据え置き（変えるときは手で直す）
     fPhoto.value=bump(fPhoto.value);
     runAutoFit();
+    // 撮影中は入力欄ではなく文字を表示しているので、表示を作り直す
+    if(document.body.classList.contains("shoot")) syncMirrors(true);
     renderCount(); persist();
     toast("保存（"+records.length+"件）／内容はそのまま");
   }

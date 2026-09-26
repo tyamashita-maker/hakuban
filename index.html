@@ -246,7 +246,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260926-175653";</script>
+<script>window.__BUILD__="20260926-180825";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -891,7 +891,7 @@
   (function(){
     var bar=document.getElementById("symbar");
     if(!bar)return;
-    ["±","×","－","φ","°","〜","/","mm","cm"].forEach(function(t){
+    ["×","－","A=","B=","C=","D=","AC=±0","BD=±0"].forEach(function(t){
       var b=el("button","sym"); b.type="button"; b.textContent=t;
       // 押しても入力欄のフォーカスを外さない
       b.addEventListener("pointerdown",function(e){ e.preventDefault(); });

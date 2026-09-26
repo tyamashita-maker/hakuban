@@ -232,7 +232,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260924-103729";</script>
+<script>window.__BUILD__="20260926-173903";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -397,7 +397,19 @@
   var fPhoto = field("f-photo",605,250,205,145,54,"center","","numeric");
   var fW     = field("f-w",    478,486,327, 72,60,"left","");
   var fL     = field("f-l",    478,596,327, 72,60,"left","");
-  var fNote  = area("f-note",  367,690,428,300,38);
+  var fN1 = field("f-note1", 367,700,428,96,56,"left","");
+  var fN2 = field("f-note2", 367,800,428,96,56,"left","");
+  var fN3 = field("f-note3", 367,900,428,96,56,"left","");
+  var NOTES=[fN1,fN2,fN3];
+  function noteText(){
+    var a=[];
+    for(var i=0;i<NOTES.length;i++){ var t=NOTES[i].value.trim(); if(t)a.push(t); }
+    return a.join(" / ");
+  }
+  function setNotes(str){
+    var parts=String(str||"").split(/\s*\/\s*|\n/);
+    for(var i=0;i<NOTES.length;i++) NOTES[i].value=parts[i]||"";
+  }
 
   // 令和 □年 □月 □日（数字欄を中身ぴったりに詰めて、行全体を枠いっぱいに拡大する）
   var fitDate;
@@ -502,7 +514,7 @@
   autoFit(fBldg, 80,18);
   autoFit(fPhoto,104,18);
   autoFitMulti(fOwner,84,16,1.15,true);
-  autoFitMulti(fNote, 72,16,1.25,false);
+  NOTES.forEach(function(f){ autoFit(f,68,16); });
   autoFit(fPlace, 88,20);
   if(fitDate){
     AUTOFIT.push(fitDate);
@@ -519,7 +531,7 @@
     else               { m=el("div","mir abs"); board.appendChild(m); }
     MIRRORS.push({inp:inp,m:m,kind:kind});
   }
-  [fNo,fBldg,fOwner,fPlace,fPhoto,fW,fL,fNote].forEach(function(f){ addMirror(f,"abs"); });
+  [fNo,fBldg,fOwner,fPlace,fPhoto,fW,fL,fN1,fN2,fN3].forEach(function(f){ addMirror(f,"abs"); });
   [fYear,fMon,fDay].forEach(function(f){ addMirror(f,"inline"); });
 
   function syncMirrors(on){
@@ -842,7 +854,7 @@
     return {
       no:fNo.value, year:fYear.value, mon:fMon.value, day:fDay.value,
       bldg:fBldg.value, owner:fOwner.value, place:fPlace.value, photo:fPhoto.value,
-      w:fW.value, l:fL.value, note:fNote.value, dateEditedOn:dateEditedOn,
+      w:fW.value, l:fL.value, note:noteText(), dateEditedOn:dateEditedOn,
       circled:Object.keys(circled).filter(function(n){return circled[n];}),
       strokes:strokes
     };
@@ -855,7 +867,7 @@
       lsSet(KEY_R,JSON.stringify(records));
     },250);
   }
-  var FIELDS=[fNo,fYear,fMon,fDay,fBldg,fOwner,fPlace,fPhoto,fW,fL,fNote];
+  var FIELDS=[fNo,fYear,fMon,fDay,fBldg,fOwner,fPlace,fPhoto,fW,fL,fN1,fN2,fN3];
   FIELDS.forEach(function(f){ f.addEventListener("input",persist); });
   [fYear,fMon,fDay].forEach(function(f){
     f.addEventListener("input",function(){ dateEditedOn=todayISO(); });
@@ -876,7 +888,7 @@
       }
       fBldg.value=st.bldg||""; fOwner.value=st.owner||""; fPlace.value=st.place||"";
       fPhoto.value=st.photo||""; fW.value=st.w||""; fL.value=st.l||"";
-      fNote.value=st.note||"";
+      setNotes(st.note);
       (st.circled||[]).forEach(function(n){ setCircle(n,true); });
       strokes=(st.strokes||[]).filter(function(x){return x&&x.pts;});
       runAutoFit();
@@ -905,23 +917,40 @@
       extra:circledOf("extra").join("・"),
       w:fW.value.trim(),
       l:fL.value.trim(),
-      note:fNote.value.trim(),
+      note:noteText(),
       at:new Date().toISOString().slice(0,19).replace("T"," ")
     };
     records.push(rec);
     // 次の1枚へ：写真番号だけ繰り上げる。
-    // 調査番号は同じ損傷を複数枚撮るので据え置き（変えるときは手で直す）
+    // 同じ損傷が続けて撮れることが多いので、部位・損傷種類・寸法・備考・手書きは
+    // そのまま残す。消したいときは「この面をクリア」を押す。
+    // 調査番号は所有者番号なので据え置き（変えるときは手で直す）
     fPhoto.value=bump(fPhoto.value);
     runAutoFit();
-    clearCircles(); strokes=[]; redrawInk();
-    fW.value=""; fL.value=""; fNote.value="";
     renderCount(); persist();
-    toast("保存しました（"+records.length+"件）");
+    toast("保存（"+records.length+"件）／内容はそのまま");
+  }
+
+  // 直前の保存を取り消して、その内容を白板に戻す
+  function undoSave(){
+    if(!records.length){ toast("戻る記録がありません"); return; }
+    var r=records.pop();
+    fNo.value=r.no||""; fBldg.value=r.bldg||""; fOwner.value=r.owner||"";
+    fPlace.value=r.place||""; fPhoto.value=r.photo||"";
+    fW.value=r.w||""; fL.value=r.l||"";
+    setNotes(r.note);
+    clearCircles();
+    [r.part,r.damage,r.extra].forEach(function(str){
+      String(str||"").split("・").forEach(function(n){ if(n) setCircle(n,true); });
+    });
+    runAutoFit(); renderCount(); persist();
+    applyShootLook();
+    toast("1件戻しました（残り"+records.length+"件）");
   }
 
   function clearFace(){
     clearCircles(); strokes=[]; redrawInk();
-    fW.value=""; fL.value=""; fNote.value="";
+    fW.value=""; fL.value=""; setNotes("");
     persist(); toast("この面をクリアしました");
   }
 
@@ -1170,6 +1199,35 @@
   }
   document.getElementById("bShoot").addEventListener("click",function(){ setShoot(true); });
   document.getElementById("handle").addEventListener("click",function(){ setShoot(false); });
+
+  /* ---- 撮影中の横フリック ----
+     右端から左へ … 保存して次へ
+     左端から右へ … 直前の保存を取り消す            */
+  (function(){
+    var sx=0, sy=0, tracking=false, fromRight=false;
+    var EDGE=70, MIN=90;
+    document.addEventListener("pointerdown",function(e){
+      tracking=false;
+      if(!document.body.classList.contains("shoot"))return;
+      if(document.body.classList.contains("pen"))return;
+      if(!sheet.hidden)return;
+      var a=document.activeElement;
+      if(a&&(a.tagName==="INPUT"||a.tagName==="TEXTAREA"))return;
+      var w=document.documentElement.clientWidth||window.innerWidth||0;
+      if(!w)return;                       // 幅が取れないときは判定しない
+      if(e.clientX<=EDGE){ tracking=true; fromRight=false; }
+      else if(e.clientX>=w-EDGE){ tracking=true; fromRight=true; }
+      sx=e.clientX; sy=e.clientY;
+    },true);
+    document.addEventListener("pointerup",function(e){
+      if(!tracking)return;
+      tracking=false;
+      var dx=e.clientX-sx, dy=e.clientY-sy;
+      if(Math.abs(dx)<MIN||Math.abs(dx)<Math.abs(dy)*2)return;
+      if(fromRight&&dx<0) save();
+      else if(!fromRight&&dx>0) undoSave();
+    },true);
+  })();
 
   /* ---- トースト ---- */
   var toastEl=document.getElementById("toast"), tt=null;

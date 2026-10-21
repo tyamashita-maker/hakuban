@@ -246,7 +246,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261021-104102";</script>
+<script>window.__BUILD__="20261021-105451";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -742,23 +742,24 @@
     Object.keys(hits).forEach(function(n){
       var h=hits[n];
       if(!h.label)return;
-      if(!circled[n]){ h.label.style.opacity="0.08"; return; }   // 手元では見えるが写真にはほぼ出ない濃さ
+      if(!circled[n]){
+        // 選ばなかった項目は薄く・小さく。タップ範囲は元のまま変えない
+        var sm=24, st0=h.label.style;
+        st0.opacity="0.05"; st0.fontSize=px(sm); st0.height=px(sm);
+        st0.top=px(h.y0+((h.y1-h.y0)-sm)/2); st0.lineHeight="1";
+        return;
+      }   // 手元では見えるが写真にはほぼ出ない濃さ
       var G=emphBox(h), w100=widthAt100(n);
-      var byW=Math.floor((G.w*0.95)/(w100/100+EPAD*2));
-      var size=Math.min(72,byW,60);
+      // 丸囲いを出さないので、文字の幅だけで決められる
+      var byW=Math.floor((G.w*0.95)/(w100/100));
+      var size=Math.min(72,byW);    // 周りを小さくしたので高さの制限を外せる
       if(size<36)size=36;
       var top=h.y0+((h.y1-h.y0)-size)/2;
       var st=h.label.style;
       st.left=px(G.x); st.width=px(G.w); st.top=px(top); st.height=px(size);
       st.fontSize=px(size); st.lineHeight="1";
       st.textAlign="center"; st.justifyContent="center";
-      var tw=w100*size/100, cx=G.x+G.w/2, cy=top+size/2;
-      h.ell.setAttribute("cx",cx); h.ell.setAttribute("cy",cy);
-      h.ell.setAttribute("rx",tw/2+size*EPAD);
-      h.ell.setAttribute("ry",size/2+size*0.18);
-      h.ell.setAttribute("stroke-width",Math.max(5,Math.round(size*0.07)));
-      h.ell.setAttribute("transform","rotate(0 "+cx+" "+cy+")");
-      h.ell.style.display="";
+      h.ell.style.display="none";   // 濃さの差で分かるので丸囲いは出さない
       h.btn.style.left=px(G.x); h.btn.style.top=px(top-10);
       h.btn.style.width=px(G.w); h.btn.style.height=px(size+20);
     });

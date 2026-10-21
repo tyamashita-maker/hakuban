@@ -246,7 +246,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261021-103127";</script>
+<script>window.__BUILD__="20261021-104102";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -638,6 +638,8 @@
     marks.appendChild(e);
     b.addEventListener("click",function(){
       setCircle(name,!circled[name]);
+      // 撮影中は見た目を作り直す（濃さ・大きさ・丸囲いを選択に追従させる）
+      if(document.body.classList.contains("shoot")) applyShootLook();
       persist();
     });
     board.appendChild(b);
@@ -740,7 +742,7 @@
     Object.keys(hits).forEach(function(n){
       var h=hits[n];
       if(!h.label)return;
-      if(!circled[n]){ h.label.style.opacity="0.12"; return; }   // 手元では見えるが写真にはほぼ出ない濃さ
+      if(!circled[n]){ h.label.style.opacity="0.08"; return; }   // 手元では見えるが写真にはほぼ出ない濃さ
       var G=emphBox(h), w100=widthAt100(n);
       var byW=Math.floor((G.w*0.95)/(w100/100+EPAD*2));
       var size=Math.min(72,byW,60);

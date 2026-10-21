@@ -246,7 +246,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20260926-180825";</script>
+<script>window.__BUILD__="20261021-103127";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -644,6 +644,7 @@
     var lab=LABELS[name]||null;
     return {name:name,group:group,btn:b,ell:e,label:lab,
             css:lab?lab.style.cssText:"", bcss:b.style.cssText,
+            x0:x0,y0:y0,x1:x1,y1:y1,
             ell0:{cx:cx,cy:cy,rx:rx,ry:ry,tr:e.getAttribute("transform")}};
   }
 
@@ -725,6 +726,39 @@
         h.ell.setAttribute("stroke-width",Math.max(5,Math.round(size*0.075)));
         h.ell.setAttribute("transform","rotate(0 "+cx+" "+cy+")");
       });
+    });
+  }
+
+  // 選ばなかった項目は薄く残し、選んだ項目を濃く大きくする
+  function emphBox(h){
+    if(h.group==="part")   return {x:32, w:108};
+    if(h.group==="damage") return {x:141,w:191};
+    return {x:h.x0-30, w:(h.x1-h.x0)+60};   // 補足語は自分の周りだけ使う
+  }
+  function layoutDim(){
+    restoreLayout();
+    Object.keys(hits).forEach(function(n){
+      var h=hits[n];
+      if(!h.label)return;
+      if(!circled[n]){ h.label.style.opacity="0.12"; return; }   // 手元では見えるが写真にはほぼ出ない濃さ
+      var G=emphBox(h), w100=widthAt100(n);
+      var byW=Math.floor((G.w*0.95)/(w100/100+EPAD*2));
+      var size=Math.min(72,byW,60);
+      if(size<36)size=36;
+      var top=h.y0+((h.y1-h.y0)-size)/2;
+      var st=h.label.style;
+      st.left=px(G.x); st.width=px(G.w); st.top=px(top); st.height=px(size);
+      st.fontSize=px(size); st.lineHeight="1";
+      st.textAlign="center"; st.justifyContent="center";
+      var tw=w100*size/100, cx=G.x+G.w/2, cy=top+size/2;
+      h.ell.setAttribute("cx",cx); h.ell.setAttribute("cy",cy);
+      h.ell.setAttribute("rx",tw/2+size*EPAD);
+      h.ell.setAttribute("ry",size/2+size*0.18);
+      h.ell.setAttribute("stroke-width",Math.max(5,Math.round(size*0.07)));
+      h.ell.setAttribute("transform","rotate(0 "+cx+" "+cy+")");
+      h.ell.style.display="";
+      h.btn.style.left=px(G.x); h.btn.style.top=px(top-10);
+      h.btn.style.width=px(G.w); h.btn.style.height=px(size+20);
     });
   }
 
@@ -1103,7 +1137,8 @@
     var h=el("h3"); h.textContent="撮影の設定"; box.appendChild(h);
     [
       {key:"mode",label:"撮影時の表示",
-       items:[["selected","選んだ項目だけ"],["all","全項目＋丸囲い"]]},
+       items:[["selected","選んだ項目だけ"],["dim","薄く残して強調"],
+              ["all","全項目＋丸囲い"]]},
       {key:"inv", label:"撮影時の配色",
        items:[[false,"白地に黒"],[true,"黒地に白"]]}
     ].forEach(function(row){
@@ -1226,7 +1261,7 @@
   (function(){
     var raw=lsGet(KEY_O);
     if(raw){ try{ var v=JSON.parse(raw);
-      if(v&&(v.mode==="selected"||v.mode==="all"))OPT.mode=v.mode;
+      if(v&&(v.mode==="selected"||v.mode==="dim"||v.mode==="all"))OPT.mode=v.mode;
       OPT.inv=!!(v&&v.inv);
     }catch(e){} }
   })();
@@ -1248,7 +1283,9 @@
       for(var i=0;i<FIELDS.length;i++) FIELDS[i].disabled=on;
     }
     document.body.classList.toggle("inv",on&&OPT.inv);
-    if(on&&OPT.mode==="selected") layoutShoot(); else restoreLayout();
+    if(on&&OPT.mode==="selected")   layoutShoot();
+    else if(on&&OPT.mode==="dim")   layoutDim();
+    else                            restoreLayout();
     updateWL();
     if(typeof syncMirrors!=="undefined") syncMirrors(on);
     inkColor=(on&&OPT.inv)?"#fff":"#000";

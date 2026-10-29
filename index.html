@@ -246,7 +246,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261021-110159";</script>
+<script>window.__BUILD__="20261029-163614";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -531,6 +531,28 @@
   autoFit(fPhoto,104,18);
   autoFitMulti(fOwner,84,16,1.15,true);
   NOTES.forEach(function(f){ autoFit(f,68,16); });
+
+  // W= / L= の値は、撮影時に上限を切り替えるので専用の調整を使う
+  var WLMAX=60;
+  function autoFitWL(inp){
+    function run(){
+      var cs=window.getComputedStyle(inp);
+      var avail=(parseFloat(inp.style.width)||inp.clientWidth)
+                -(parseFloat(cs.paddingLeft)||0)-(parseFloat(cs.paddingRight)||0);
+      var t=inp.value||"", size=WLMAX;
+      if(t&&avail>0){
+        measCtx.font=FITFONT.replace("%d",100);
+        var w=measCtx.measureText(t).width;
+        if(w>0){ var byW=Math.floor(100*avail/w); if(byW<size)size=byW; }
+      }
+      if(size<16)size=16;
+      inp.style.fontSize=px(size);
+    }
+    inp.addEventListener("input",run);
+    AUTOFIT.push(run);
+    run();
+  }
+  autoFitWL(fW); autoFitWL(fL);
   autoFit(fPlace, 88,20);
   if(fitDate){
     AUTOFIT.push(fitDate);
@@ -586,14 +608,40 @@
 
   // 撮影中に文字をタップしたら、その欄だけ一時的に入力欄へ戻す。
   // 入力を終えて他所を触ったら、また「ただの文字」に戻す。
+  // ペンで触って消せるのは「その1枚だけの欄」に限る。
+  // 調査番号・建物番号・所有者・場所・写真番号・日付は、誤って消すと痛いので対象外。
+  var PENCLEAR=[fW,fL,fN1,fN2,fN3];
+  function canPenClear(inp){
+    for(var i=0;i<PENCLEAR.length;i++) if(PENCLEAR[i]===inp) return true;
+    return false;
+  }
+
   MIRRORS.forEach(function(o){
+    o.m.addEventListener("pointerdown",function(e){ o.pen=(e.pointerType==="pen"); });
     o.m.addEventListener("click",function(){
       if(!document.body.classList.contains("shoot"))return;
+      // Apple Pencil で記入済みの欄を触ったら消す（空の欄はそのまま手書き入力へ）
+      if(o.pen&&o.inp.value&&canPenClear(o.inp)){
+        o.inp.value="";
+        o.inp.dispatchEvent(new Event("input",{bubbles:true}));
+        syncOne(o,true); updateWL(); toast("消しました");
+        return;
+      }
       o.m.style.display="none";
       o.inp.style.display="";
       o.inp.disabled=false;
       o.inp.focus();
       try{ o.inp.setSelectionRange(o.inp.value.length,o.inp.value.length); }catch(e){}
+    });
+    o.inp.addEventListener("pointerdown",function(e){
+      if(e.pointerType!=="pen")return;
+      if(!canPenClear(o.inp))return;     // 物件情報の欄は消さない
+      if(!o.inp.value)return;            // 空ならそのまま手書き入力
+      e.preventDefault();
+      o.inp.value="";
+      o.inp.dispatchEvent(new Event("input",{bubbles:true}));
+      if(o.inp.blur)o.inp.blur();
+      updateWL(); toast("消しました");
     });
     o.inp.addEventListener("focusout",function(){
       if(!document.body.classList.contains("shoot"))return;
@@ -1272,9 +1320,32 @@
 
   // 撮影時、W= / L= は値が無ければ消す（「選んだ項目だけ」のときのみ）
   function updateWL(){
-    var sel=document.body.classList.contains("shoot")&&OPT.mode==="selected";
-    labW.style.display=(sel&&!fW.value.trim())?"none":"";
-    labL.style.display=(sel&&!fL.value.trim())?"none":"";
+    var shoot=document.body.classList.contains("shoot");
+    var sel=shoot&&OPT.mode==="selected";
+    var dim=shoot&&OPT.mode==="dim";
+    [[labW,fW],[labL,fL]].forEach(function(pair){
+      var lab=pair[0], f=pair[1], empty=!f.value.trim();
+      lab.style.display=(sel&&empty)?"none":"";
+      // 未記入のときは、選ばなかった項目と同じように薄くする
+      lab.style.opacity=(dim&&empty)?"0.08":"";
+    });
+  }
+
+  // 撮影時は W= / L= を大きく表示する
+  var WL0={labTop:[486,596], labSize:72, fx:478, fw:327, fh:72};
+  function sizeWL(){
+    var shoot=document.body.classList.contains("shoot");
+    var big=shoot&&(OPT.mode==="selected"||OPT.mode==="dim");
+    var ls=big?100:WL0.labSize;
+    var tops=big?[480,590]:WL0.labTop;
+    var fx=big?510:WL0.fx, fw=big?295:WL0.fw, fh=big?100:WL0.fh;
+    [[labW,fW,0],[labL,fL,1]].forEach(function(a){
+      var lab=a[0], f=a[1], i=a[2];
+      lab.style.top=px(tops[i]); lab.style.fontSize=px(ls); lab.style.height=px(ls);
+      f.style.top=px(tops[i]); f.style.left=px(fx);
+      f.style.width=px(fw);    f.style.height=px(fh);
+    });
+    WLMAX=big?100:60;
   }
   [fW,fL].forEach(function(f){ f.addEventListener("input",updateWL); });
 
@@ -1289,7 +1360,7 @@
     if(on&&OPT.mode==="selected")   layoutShoot();
     else if(on&&OPT.mode==="dim")   layoutDim();
     else                            restoreLayout();
-    updateWL();
+    sizeWL(); updateWL(); runAutoFit();
     if(typeof syncMirrors!=="undefined") syncMirrors(on);
     inkColor=(on&&OPT.inv)?"#fff":"#000";
     redrawInk();

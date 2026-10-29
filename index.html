@@ -246,7 +246,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261029-170353";</script>
+<script>window.__BUILD__="20261029-171941";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -627,42 +627,37 @@
     return false;
   }
 
-  var PRESS_MS=500, PRESS_MOVE=12;   // 長押しの時間と、ぶれの許容
+  var DBL_MS=350;   // 2回タップとみなす間隔
 
   MIRRORS.forEach(function(o){
-    var timer=null, sx=0, sy=0;
-    function cancelHold(){ if(timer){ clearTimeout(timer); timer=null; } }
-    function startHold(e){
-      o.penFired=false;
+    var lastPen=0;
+    function penTap(e){
       if(e.pointerType!=="pen")return;
       if(!canPenClear(o.inp))return;     // 物件情報の欄は消さない
-      if(!o.inp.value)return;            // 空ならそのまま手書き入力
-      sx=e.clientX; sy=e.clientY;
-      cancelHold();
-      timer=setTimeout(function(){
-        timer=null; o.penFired=true;
+      var now=Date.now();
+      if(o.inp.value && now-lastPen<DBL_MS){
+        // ペンで2回続けてタップ → 中身を消して、そのまま書き直せる状態にする
+        lastPen=0;
+        e.preventDefault();
         o.inp.value="";
         o.inp.dispatchEvent(new Event("input",{bubbles:true}));
-        if(document.body.classList.contains("shoot")) syncOne(o,true);
-        if(o.inp.blur)o.inp.blur();
-        updateWL(); toast("消しました");
-      },PRESS_MS);
+        updateWL();
+        if(document.body.classList.contains("shoot")){
+          o.m.style.display="none";
+          o.inp.style.display="";
+          o.inp.disabled=false;
+        }
+        try{ o.inp.focus(); }catch(err){}
+        toast("消しました");
+        return;
+      }
+      lastPen=now;
     }
-    function moveCheck(e){
-      if(!timer)return;
-      if(Math.abs(e.clientX-sx)>PRESS_MOVE||Math.abs(e.clientY-sy)>PRESS_MOVE) cancelHold();
-    }
-    [o.m,o.inp].forEach(function(t){
-      t.addEventListener("pointerdown",startHold);
-      t.addEventListener("pointermove",moveCheck);
-      t.addEventListener("pointerup",cancelHold);
-      t.addEventListener("pointercancel",cancelHold);
-      t.addEventListener("pointerleave",cancelHold);
-    });
+    o.m.addEventListener("pointerdown",penTap);
+    o.inp.addEventListener("pointerdown",penTap);
 
     o.m.addEventListener("click",function(){
       if(!document.body.classList.contains("shoot"))return;
-      if(o.penFired){ o.penFired=false; return; }   // 長押しで消した直後は編集に入らない
       o.m.style.display="none";
       o.inp.style.display="";
       o.inp.disabled=false;

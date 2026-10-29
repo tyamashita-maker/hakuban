@@ -246,7 +246,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261029-173339";</script>
+<script>window.__BUILD__="20261029-173741";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -627,18 +627,20 @@
     return false;
   }
 
-  var HOLD_MS=500, HOLD_MOVE=14;   // 長押しの時間と、ぶれの許容
+  var HOLD_MS=350, HOLD_MOVE=14;   // 長押しとみなす時間と、ぶれの許容
 
   MIRRORS.forEach(function(o){
-    var timer=null, sx=0, sy=0, held=false;
+    var downAt=0, sx=0, sy=0, moved=false;
 
     function shoot(){ return document.body.classList.contains("shoot"); }
     function isOpen(){ return o.inp.style.display!=="none"; }
-    function openEditor(){
-      if(isOpen())return;
+    function show(){
       o.m.style.display="none";
       o.inp.style.display="";
       o.inp.disabled=false;
+    }
+    function openEditor(){
+      if(!isOpen()) show();
       o.inp.focus();
       try{ o.inp.setSelectionRange(o.inp.value.length,o.inp.value.length); }catch(e){}
     }
@@ -646,52 +648,52 @@
       o.inp.value="";
       o.inp.dispatchEvent(new Event("input",{bubbles:true}));
       updateWL();
-      o.m.style.display="none";
-      o.inp.style.display="";
-      o.inp.disabled=false;
-      try{ o.inp.focus(); }catch(e){}
+      show();
+      o.inp.focus();            // 指を離した操作の中で呼ぶので、そのまま書ける
       toast("消しました");
     }
-    function stop(){ if(timer){ clearTimeout(timer); timer=null; } }
     function begin(e){
-      held=false;
-      if(e.pointerType!=="pen")return false;
-      if(!canPenClear(o.inp)||!o.inp.value)return false;
-      sx=e.clientX; sy=e.clientY;
-      stop();
-      timer=setTimeout(function(){ timer=null; held=true; clearField(); },HOLD_MS);
-      return true;
+      downAt=Date.now(); sx=e.clientX; sy=e.clientY; moved=false;
     }
     function moveCheck(e){
-      if(!timer)return;
-      if(Math.abs(e.clientX-sx)>HOLD_MOVE||Math.abs(e.clientY-sy)>HOLD_MOVE) stop();
+      if(!downAt)return;
+      if(Math.abs(e.clientX-sx)>HOLD_MOVE||Math.abs(e.clientY-sy)>HOLD_MOVE) moved=true;
+    }
+    function finish(e){
+      if(!downAt)return false;
+      var dur=Date.now()-downAt; downAt=0;
+      if(!moved&&dur>=HOLD_MS&&canPenClear(o.inp)&&o.inp.value){ clearField(); return true; }
+      return false;
     }
 
-    // ---- 撮影中（文字表示）側 ----
+    // ---- 撮影中（文字表示）側。ペンは自前で処理する ----
     o.m.addEventListener("pointerdown",function(e){
       if(!shoot())return;
-      if(e.pointerType!=="pen")return;        // 指は click 側で開く
-      e.preventDefault();                      // ペンは自前で処理する
-      if(!begin(e)) openEditor();              // 消せない欄・空の欄はそのまま開く
+      if(e.pointerType!=="pen")return;   // 指は click 側で開く
+      e.preventDefault();
+      begin(e);
     });
     o.m.addEventListener("pointermove",moveCheck);
-    o.m.addEventListener("pointerup",function(){
-      if(timer){ stop(); openEditor(); }       // 短いタップなら編集を開く
+    o.m.addEventListener("pointerup",function(e){
+      if(!downAt)return;
+      if(!finish(e)) openEditor();       // 短いタップなら編集を開く
     });
-    o.m.addEventListener("pointercancel",stop);
-    o.m.addEventListener("pointerleave",stop);
+    o.m.addEventListener("pointercancel",function(){ downAt=0; });
+    o.m.addEventListener("pointerleave",function(){ downAt=0; });
     o.m.addEventListener("click",function(){
       if(!shoot())return;
-      if(held){ held=false; return; }
       openEditor();
     });
 
     // ---- 編集中（入力欄）側 ----
-    o.inp.addEventListener("pointerdown",begin);
+    o.inp.addEventListener("pointerdown",function(e){
+      if(e.pointerType!=="pen")return;
+      begin(e);
+    });
     o.inp.addEventListener("pointermove",moveCheck);
-    o.inp.addEventListener("pointerup",stop);
-    o.inp.addEventListener("pointercancel",stop);
-    o.inp.addEventListener("pointerleave",stop);
+    o.inp.addEventListener("pointerup",function(e){ finish(e); });
+    o.inp.addEventListener("pointercancel",function(){ downAt=0; });
+    o.inp.addEventListener("pointerleave",function(){ downAt=0; });
 
     o.inp.addEventListener("focusout",function(){
       if(!shoot())return;

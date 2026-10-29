@@ -246,7 +246,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261029-163614";</script>
+<script>window.__BUILD__="20261029-170353";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -489,7 +489,16 @@
     AUTOFIT.push(run);
     run();
   }
-  function runAutoFit(){ for(var i=0;i<AUTOFIT.length;i++)AUTOFIT[i](); }
+  // 備考の1行目を「+」で始めたら、L= の続きとみなして文字の大きさを揃える
+  function linkLNote(){
+    if(typeof fL==="undefined"||typeof fN1==="undefined")return;
+    var n1=fN1.value||"";
+    if(!/^[+＋]/.test(n1)||!fL.value.trim())return;
+    var a=parseFloat(fL.style.fontSize)||0, b=parseFloat(fN1.style.fontSize)||0;
+    var size=Math.min(a,b);
+    if(size>0){ fL.style.fontSize=px(size); fN1.style.fontSize=px(size); }
+  }
+  function runAutoFit(){ for(var i=0;i<AUTOFIT.length;i++)AUTOFIT[i](); linkLNote(); }
 
   // 複数行用。改行はそのまま維持し、行数と一番長い行から入る最大サイズを決める
   function autoFitMulti(inp,maxSize,minSize,lh,center){
@@ -553,6 +562,8 @@
     run();
   }
   autoFitWL(fW); autoFitWL(fL);
+  // L= と備考1行目は連動する可能性があるので、どちらを触っても全体を調整し直す
+  [fL,fN1].forEach(function(f){ f.addEventListener("input",function(){ runAutoFit(); }); });
   autoFit(fPlace, 88,20);
   if(fitDate){
     AUTOFIT.push(fitDate);
@@ -616,32 +627,47 @@
     return false;
   }
 
+  var PRESS_MS=500, PRESS_MOVE=12;   // 長押しの時間と、ぶれの許容
+
   MIRRORS.forEach(function(o){
-    o.m.addEventListener("pointerdown",function(e){ o.pen=(e.pointerType==="pen"); });
-    o.m.addEventListener("click",function(){
-      if(!document.body.classList.contains("shoot"))return;
-      // Apple Pencil で記入済みの欄を触ったら消す（空の欄はそのまま手書き入力へ）
-      if(o.pen&&o.inp.value&&canPenClear(o.inp)){
+    var timer=null, sx=0, sy=0;
+    function cancelHold(){ if(timer){ clearTimeout(timer); timer=null; } }
+    function startHold(e){
+      o.penFired=false;
+      if(e.pointerType!=="pen")return;
+      if(!canPenClear(o.inp))return;     // 物件情報の欄は消さない
+      if(!o.inp.value)return;            // 空ならそのまま手書き入力
+      sx=e.clientX; sy=e.clientY;
+      cancelHold();
+      timer=setTimeout(function(){
+        timer=null; o.penFired=true;
         o.inp.value="";
         o.inp.dispatchEvent(new Event("input",{bubbles:true}));
-        syncOne(o,true); updateWL(); toast("消しました");
-        return;
-      }
+        if(document.body.classList.contains("shoot")) syncOne(o,true);
+        if(o.inp.blur)o.inp.blur();
+        updateWL(); toast("消しました");
+      },PRESS_MS);
+    }
+    function moveCheck(e){
+      if(!timer)return;
+      if(Math.abs(e.clientX-sx)>PRESS_MOVE||Math.abs(e.clientY-sy)>PRESS_MOVE) cancelHold();
+    }
+    [o.m,o.inp].forEach(function(t){
+      t.addEventListener("pointerdown",startHold);
+      t.addEventListener("pointermove",moveCheck);
+      t.addEventListener("pointerup",cancelHold);
+      t.addEventListener("pointercancel",cancelHold);
+      t.addEventListener("pointerleave",cancelHold);
+    });
+
+    o.m.addEventListener("click",function(){
+      if(!document.body.classList.contains("shoot"))return;
+      if(o.penFired){ o.penFired=false; return; }   // 長押しで消した直後は編集に入らない
       o.m.style.display="none";
       o.inp.style.display="";
       o.inp.disabled=false;
       o.inp.focus();
       try{ o.inp.setSelectionRange(o.inp.value.length,o.inp.value.length); }catch(e){}
-    });
-    o.inp.addEventListener("pointerdown",function(e){
-      if(e.pointerType!=="pen")return;
-      if(!canPenClear(o.inp))return;     // 物件情報の欄は消さない
-      if(!o.inp.value)return;            // 空ならそのまま手書き入力
-      e.preventDefault();
-      o.inp.value="";
-      o.inp.dispatchEvent(new Event("input",{bubbles:true}));
-      if(o.inp.blur)o.inp.blur();
-      updateWL(); toast("消しました");
     });
     o.inp.addEventListener("focusout",function(){
       if(!document.body.classList.contains("shoot"))return;

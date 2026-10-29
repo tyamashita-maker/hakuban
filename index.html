@@ -246,7 +246,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261029-171941";</script>
+<script>window.__BUILD__="20261029-172549";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -627,45 +627,69 @@
     return false;
   }
 
-  var DBL_MS=350;   // 2回タップとみなす間隔
+  var DBL_MS=280;   // 2回タップとみなす間隔
 
   MIRRORS.forEach(function(o){
-    var lastPen=0;
-    function penTap(e){
-      if(e.pointerType!=="pen")return;
-      if(!canPenClear(o.inp))return;     // 物件情報の欄は消さない
-      var now=Date.now();
-      if(o.inp.value && now-lastPen<DBL_MS){
-        // ペンで2回続けてタップ → 中身を消して、そのまま書き直せる状態にする
-        lastPen=0;
-        e.preventDefault();
-        o.inp.value="";
-        o.inp.dispatchEvent(new Event("input",{bubbles:true}));
-        updateWL();
-        if(document.body.classList.contains("shoot")){
-          o.m.style.display="none";
-          o.inp.style.display="";
-          o.inp.disabled=false;
-        }
-        try{ o.inp.focus(); }catch(err){}
-        toast("消しました");
-        return;
-      }
-      lastPen=now;
-    }
-    o.m.addEventListener("pointerdown",penTap);
-    o.inp.addEventListener("pointerdown",penTap);
+    var lastPen=0, waitOpen=null;
 
-    o.m.addEventListener("click",function(){
-      if(!document.body.classList.contains("shoot"))return;
+    function shoot(){ return document.body.classList.contains("shoot"); }
+    function isOpen(){ return o.inp.style.display!=="none"; }
+    function openEditor(){
+      if(isOpen())return;
       o.m.style.display="none";
       o.inp.style.display="";
       o.inp.disabled=false;
       o.inp.focus();
       try{ o.inp.setSelectionRange(o.inp.value.length,o.inp.value.length); }catch(e){}
+    }
+    function clearField(){
+      o.inp.value="";
+      o.inp.dispatchEvent(new Event("input",{bubbles:true}));
+      updateWL();
+      o.m.style.display="none";
+      o.inp.style.display="";
+      o.inp.disabled=false;
+      try{ o.inp.focus(); }catch(e){}
+      toast("消しました");
+    }
+
+    // ペンのタップは、2回目が来るか少し待ってから判断する。
+    // （入力欄を開いてしまうと、2回目のタップをiOSの手書き入力に取られるため）
+    o.m.addEventListener("pointerdown",function(e){
+      if(!shoot())return;
+      if(e.pointerType!=="pen")return;              // 指は click 側で即開く
+      if(!canPenClear(o.inp)||!o.inp.value){        // 消せない欄・空の欄はそのまま開く
+        openEditor(); return;
+      }
+      e.preventDefault();
+      var now=Date.now();
+      if(waitOpen&&now-lastPen<DBL_MS){             // 2回目が来た → 消す
+        clearTimeout(waitOpen); waitOpen=null; lastPen=0;
+        clearField();
+        return;
+      }
+      lastPen=now;
+      if(waitOpen)clearTimeout(waitOpen);
+      waitOpen=setTimeout(function(){ waitOpen=null; openEditor(); },DBL_MS);
     });
+
+    o.m.addEventListener("click",function(){
+      if(!shoot())return;
+      if(waitOpen)return;                           // ペンの判定待ち中は何もしない
+      openEditor();
+    });
+
+    // 編集中（入力欄が出ている状態）でのペン2回タップ
+    o.inp.addEventListener("pointerdown",function(e){
+      if(e.pointerType!=="pen")return;
+      if(!canPenClear(o.inp)||!o.inp.value)return;
+      var now=Date.now();
+      if(now-lastPen<DBL_MS){ lastPen=0; e.preventDefault(); clearField(); return; }
+      lastPen=now;
+    });
+
     o.inp.addEventListener("focusout",function(){
-      if(!document.body.classList.contains("shoot"))return;
+      if(!shoot())return;
       o.inp.disabled=true;
       syncOne(o,true);
     });

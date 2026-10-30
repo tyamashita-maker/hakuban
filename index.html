@@ -246,7 +246,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261030-185122";</script>
+<script>window.__BUILD__="20261030-185920";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -648,8 +648,9 @@
       o.inp.value="";
       o.inp.dispatchEvent(new Event("input",{bubbles:true}));
       updateWL();
-      show();
-      o.inp.focus();            // 指を離した操作の中で呼ぶので、そのまま書ける
+      show();                   // 入力欄は出しておく（この上に直接ペンで書ける）
+      // フォーカスは当てない。当てるとiPadがペンをスクリブル用に取り込んでしまい、
+      // 他の項目をペンで選べなくなるため。
       toast("消しました");
     }
     function begin(e){

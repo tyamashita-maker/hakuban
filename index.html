@@ -161,6 +161,10 @@
        min-width:54px;min-height:44px;padding:0 8px;cursor:pointer;
        -webkit-tap-highlight-color:transparent;}
   .sym:active{background:var(--amber);color:#1a1205;}
+  /* 「消去」は記号とは性質が違うので、離して赤系にする */
+  .sym.clr{color:var(--danger);border-color:var(--danger);
+           background:rgba(226,103,79,.14);margin-left:20px;}
+  .sym.clr:active{background:var(--danger);color:#fff;}
 
   /* 撮影の設定 */
   #opts{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:14px;
@@ -246,7 +250,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261030-185920";</script>
+<script>window.__BUILD__="20261030-190840";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -687,15 +691,9 @@
     });
 
     // ---- 編集中（入力欄）側 ----
-    o.inp.addEventListener("pointerdown",function(e){
-      if(e.pointerType!=="pen")return;
-      begin(e);
-    });
-    o.inp.addEventListener("pointermove",moveCheck);
-    o.inp.addEventListener("pointerup",function(e){ finish(e); });
-    o.inp.addEventListener("pointercancel",function(){ downAt=0; });
-    o.inp.addEventListener("pointerleave",function(){ downAt=0; });
-
+    // 入力欄が開いている間、ペンのジェスチャーはiPad（スクリブル）のものなので
+    // こちらでは一切さわらない。長押しを拾うと、スクリブルの
+    // 「長押し＝スペース挿入」とぶつかって挿入枠が居座ってしまう。
     o.inp.addEventListener("focusout",function(){
       if(!shoot())return;
       o.inp.disabled=true;
@@ -1037,6 +1035,21 @@
       b.addEventListener("click",function(){ insertSym(t); });
       bar.appendChild(b);
     });
+    // 入力中はiPadのスクリブルがペンのジェスチャーを握るので、
+    // 長押しで消す代わりにこのボタンで消す
+    (function(){
+      var c=el("button","sym clr"); c.type="button"; c.textContent="消去";
+      c.addEventListener("pointerdown",function(e){ e.preventDefault(); });
+      c.addEventListener("mousedown",function(e){ e.preventDefault(); });
+      c.addEventListener("click",function(){
+        var a=document.activeElement;
+        if(!a||(a.tagName!=="INPUT"&&a.tagName!=="TEXTAREA"))return;
+        a.value="";
+        a.dispatchEvent(new Event("input",{bubbles:true}));
+        updateWL();
+      });
+      bar.appendChild(c);
+    })();
     function insertSym(t){
       var a=document.activeElement;
       if(!a||(a.tagName!=="INPUT"&&a.tagName!=="TEXTAREA"))return;

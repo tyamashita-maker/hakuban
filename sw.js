@@ -1,5 +1,5 @@
-/* 事業損失 電子白板 — オフライン用 (20261030-190840) */
-var CACHE = "hakuban-20261030-190840";
+/* 事業損失 電子白板 — オフライン用 (20261103-183942) */
+var CACHE = "hakuban-20261103-183942";
 var CORE = ["./","./index.html","./manifest.webmanifest",
             "./icon-180.png","./icon-192.png","./icon-512.png"];
 

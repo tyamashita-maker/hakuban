@@ -250,7 +250,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261030-190840";</script>
+<script>window.__BUILD__="20261103-183942";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -415,8 +415,8 @@
   var fOwner = area("f-owner", 414,138,396,112,72,"owner");
   var fPlace = field("f-place", 99,250,438,145,88,"center","");
   var fPhoto = field("f-photo",605,250,205,145,54,"center","","numeric");
-  var fW     = field("f-w",    478,486,327, 72,60,"left","");
-  var fL     = field("f-l",    478,596,327, 72,60,"left","");
+  var fW     = field("f-w",    478,486,327, 72,60,"left","","decimal");
+  var fL     = field("f-l",    478,596,327, 72,60,"left","","decimal");
   var fN1 = field("f-note1", 367,700,428,96,56,"left","");
   var fN2 = field("f-note2", 367,800,428,96,56,"left","");
   var fN3 = field("f-note3", 367,900,428,96,56,"left","");
@@ -1027,7 +1027,7 @@
   (function(){
     var bar=document.getElementById("symbar");
     if(!bar)return;
-    ["×","+","－","A=","B=","C=","D=","AC=±0","BD=±0"].forEach(function(t){
+    ["×","+","－","cm","mm","A=","B=","C=","D=","AC=±0","BD=±0"].forEach(function(t){
       var b=el("button","sym"); b.type="button"; b.textContent=t;
       // 押しても入力欄のフォーカスを外さない
       b.addEventListener("pointerdown",function(e){ e.preventDefault(); });

@@ -250,13 +250,14 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261103-183942";</script>
+<script>window.__BUILD__="20261111-150345";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
     <button class="btn" id="bPen" aria-pressed="false">手書き</button>
     <button class="btn" id="bUndo">手書き取消</button>
     <button class="btn ghost" id="bClear">この面をクリア</button>
+    <button class="btn ghost" id="bPrev">前の分を保存</button>
     <span class="grow"></span>
     <button class="btn" id="bShoot">撮影</button>
     <button class="btn" id="bList">一覧<span class="count" id="cCount">0</span></button>
@@ -421,6 +422,59 @@
   var fN2 = field("f-note2", 367,800,428,96,56,"left","");
   var fN3 = field("f-note3", 367,900,428,96,56,"left","");
   var NOTES=[fN1,fN2,fN3];
+
+  /* ---- 数字欄の読み違いを直す ----
+     スクリブルは 0 を o、1 を l / I と読み違えることがある。
+     数字に読み替えたうえで、余計な英字は入らないようにする。
+     W= / L= だけは cm・mm を使うので c と m を通す。            */
+  function normNum(inp,units){
+    var v=inp.value;
+    if(!v)return;
+    var pos=inp.selectionStart;
+    var out=v
+      .replace(/[０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);})
+      .replace(/[．。]/g,".")
+      .replace(/[oO]/g,"0")
+      .replace(/[lI|]/g,"1")
+      .replace(/[zZ]/g,"2")
+      .replace(/[sS]/g,"5")
+      .replace(/b/g,"6")
+      .replace(/B/g,"8")
+      .replace(/[gq]/g,"9")
+      .replace(units ? /[^0-9.+\-－×±cmCM()~〜\/ ]/g : /[^0-9.\-－ ]/g, "");
+    if(out===v)return;
+    inp.value=out;
+    var d=v.length-out.length;
+    if(typeof pos==="number"){
+      var np=Math.max(0,pos-d);
+      try{ inp.setSelectionRange(np,np); }catch(e){}
+    }
+  }
+  [fW,fL].forEach(function(f){
+    f.addEventListener("input",function(){ normNum(f,true); });
+  });
+  [fNo,fBldg,fPhoto,fYear,fMon,fDay].forEach(function(f){
+    f.addEventListener("input",function(){ normNum(f,false); });
+  });
+
+  // 備考は文章も書くので、数字に隣り合う o / l だけを数字に読み替える。
+  // 「外壁モルタル」「ALC板」のような語はそのまま残る。
+  function normNote(inp){
+    var v=inp.value;
+    if(!v)return;
+    var pos=inp.selectionStart, out=v;
+    for(var i=0;i<2;i++){
+      out=out.replace(/([0-9.=±+\-×])[oO]/g,"$10").replace(/[oO]([0-9.])/g,"0$1")
+             .replace(/([0-9.=±+\-×])[lI]/g,"$11").replace(/[lI]([0-9.])/g,"1$1")
+             .replace(/([0-9.=±+\-×])[zZ]/g,"$12").replace(/[zZ]([0-9.])/g,"2$1");
+    }
+    if(out===v)return;
+    inp.value=out;
+    if(typeof pos==="number"){ try{ inp.setSelectionRange(pos,pos); }catch(e){} }
+  }
+  NOTES.forEach(function(f){
+    f.addEventListener("input",function(){ normNote(f); });
+  });
   function noteText(){
     var a=[];
     for(var i=0;i<NOTES.length;i++){ var t=NOTES[i].value.trim(); if(t)a.push(t); }
@@ -737,6 +791,7 @@
     marks.appendChild(e);
     b.addEventListener("click",function(){
       setCircle(name,!circled[name]);
+      touchBoard();
       // 撮影中は見た目を作り直す（濃さ・大きさ・丸囲いを選択に追従させる）
       if(document.body.classList.contains("shoot")) applyShootLook();
       persist();
@@ -1021,6 +1076,7 @@
   }
   var FIELDS=[fNo,fYear,fMon,fDay,fBldg,fOwner,fPlace,fPhoto,fW,fL,fN1,fN2,fN3];
   FIELDS.forEach(function(f){ f.addEventListener("input",persist); });
+  FIELDS.forEach(function(f){ f.addEventListener("input",touchBoard); });
 
   /* ---- 記号バー ----
      手書きでは認識されにくい記号を、タップで入れられるようにする  */
@@ -1121,8 +1177,11 @@
     return isNaN(n)?v:String(n+1);
   }
 
-  function save(){
-    var rec={
+  function stamp(t){
+    return new Date(t||Date.now()).toISOString().slice(0,19).replace("T"," ");
+  }
+  function buildRec(){
+    return {
       no:fNo.value.trim(),
       date:"令和"+fYear.value+"年"+fMon.value+"月"+fDay.value+"日",
       bldg:fBldg.value.trim(),
@@ -1135,8 +1194,43 @@
       w:fW.value.trim(),
       l:fL.value.trim(),
       note:noteText(),
-      at:new Date().toISOString().slice(0,19).replace("T"," ")
+      at:stamp()
     };
+  }
+  function sameRec(a,b){
+    if(!a||!b)return false;
+    var k=["no","bldg","owner","place","photo","part","damage","extra","w","l","note"];
+    for(var i=0;i<k.length;i++) if((a[k[i]]||"")!==(b[k[i]]||"")) return false;
+    return true;
+  }
+  function emptyRec(r){
+    return !(r&&(r.part||r.damage||r.extra||r.w||r.l||r.note));
+  }
+
+  /* ---- 保存し忘れの救済 ----
+     白板に何か書かれている状態から次の損傷の入力を始めると、
+     その「書き始める直前の状態」を覚えておく。
+     撮ったのに保存し忘れたと気づいたら、それを1回で記録に足せる。  */
+  var shadowRec=null, burstPrev=null, burstTimer=null;
+  function touchBoard(){
+    if(!burstTimer){ burstPrev = shadowRec ? {rec:shadowRec, at:stamp()} : null; }
+    if(burstTimer)clearTimeout(burstTimer);
+    burstTimer=setTimeout(function(){ burstTimer=null; },2500);
+    shadowRec=buildRec();
+  }
+  function saveForgotten(){
+    if(!burstPrev||emptyRec(burstPrev.rec)){ toast("足せる前の分がありません"); return; }
+    var last=records[records.length-1];
+    if(sameRec(last,burstPrev.rec)){ toast("その分は保存済みです"); return; }
+    var r=burstPrev.rec; r.at=burstPrev.at;
+    records.push(r);
+    burstPrev=null;
+    renderCount(); persist();
+    toast("前の分を記録しました（"+records.length+"件）");
+  }
+
+  function save(){
+    var rec=buildRec();
     records.push(rec);
     // 次の1枚へ：写真番号だけ繰り上げる。
     // 同じ損傷が続けて撮れることが多いので、部位・損傷種類・寸法・備考・手書きは
@@ -1344,6 +1438,7 @@
     clearFace();
   });
   document.getElementById("bSave").addEventListener("click",save);
+  document.getElementById("bPrev").addEventListener("click",saveForgotten);
 
   // ---- 全画面（iPadのSafariは対応。効かない環境では撮影モードだけ働く）----
   function fsEl(){ return document.fullscreenElement||document.webkitFullscreenElement||null; }
@@ -1443,7 +1538,20 @@
     fit();
   }
   document.getElementById("bShoot").addEventListener("click",function(){ setShoot(true); });
-  document.getElementById("handle").addEventListener("click",function(){ setShoot(false); });
+  (function(){
+    var h=document.getElementById("handle"), t=null, fired=false;
+    h.addEventListener("pointerdown",function(){
+      fired=false;
+      t=setTimeout(function(){ t=null; fired=true; saveForgotten(); },600);
+    });
+    ["pointerup","pointercancel","pointerleave"].forEach(function(ev){
+      h.addEventListener(ev,function(){ if(t){clearTimeout(t);t=null;} });
+    });
+    h.addEventListener("click",function(){
+      if(fired){ fired=false; return; }   // 長押しで救済したときは撮影モードを抜けない
+      setShoot(false);
+    });
+  })();
 
   /* ---- 撮影中の横フリック ----
      右端から左へ … 保存して次へ

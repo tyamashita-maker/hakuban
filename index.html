@@ -250,7 +250,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261111-150345";</script>
+<script>window.__BUILD__="20261111-151004";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -1178,7 +1178,11 @@
   }
 
   function stamp(t){
-    return new Date(t||Date.now()).toISOString().slice(0,19).replace("T"," ");
+    // iPadの時計そのまま（日本時間）で記録する。
+    // toISOString はUTCになり、写真のEXIF撮影時刻と9時間ずれるため使わない。
+    var d=new Date(t||Date.now()), z=function(n){ return (n<10?"0":"")+n; };
+    return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+" "+
+           z(d.getHours())+":"+z(d.getMinutes())+":"+z(d.getSeconds());
   }
   function buildRec(){
     return {
@@ -1614,6 +1618,23 @@
 
   /* ---- 起動 ---- */
   restore();
+
+  // 以前の版はUTCで保存時刻を記録していたので、既存の記録を一度だけ日本時間に直す
+  (function(){
+    try{
+      if(lsGet("jsb.tzfix.v1"))return;
+      var changed=false;
+      for(var i=0;i<records.length;i++){
+        var a=records[i].at;
+        if(typeof a==="string"&&/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(a)){
+          var d=new Date(a.replace(" ","T")+"Z");
+          if(!isNaN(d.getTime())){ records[i].at=stamp(d.getTime()); changed=true; }
+        }
+      }
+      lsSet("jsb.tzfix.v1","1");
+      if(changed){ persist(); }
+    }catch(e){}
+  })();
   fit();
   redrawInk();
   keepAwake();

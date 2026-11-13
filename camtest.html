@@ -65,7 +65,8 @@
 <section>
   <h2>5. 結果</h2>
   <pre id="res">まだ撮影していません</pre>
-  <button id="bSave" disabled>この写真を保存</button>
+  <button id="bSave" disabled>この写真を保存（共有シート）</button>
+  <button id="bDl" disabled>ファイルに保存（共有シートを使わない）</button>
   <canvas id="out"></canvas>
 </section>
 
@@ -231,8 +232,18 @@
         "サイズ: "+W+" x "+H+"   （約 "+man+" 万画素）\n"+
         "書き出し: "+(b?Math.round(b.size/1024)+" KB":"失敗");
       $("bSave").disabled=!b;
+      $("bDl").disabled=!b;
     },"image/jpeg",0.92);
   }
+
+  function download(){
+    if(!blob) return;
+    var a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="camtest-"+Date.now()+".jpg";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+  $("bDl").onclick=download;
 
   $("bSave").onclick=function(){
     if(!blob) return;

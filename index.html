@@ -250,7 +250,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261113-171801";</script>
+<script>window.__BUILD__="20261113-174252";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -260,6 +260,7 @@
     <button class="btn ghost" id="bPrev">前の分を保存</button>
     <span class="grow"></span>
     <button class="btn" id="bCam">カメラ</button>
+    <button class="btn" id="bCamX">続き写真</button>
     <button class="btn" id="bShoot">撮影</button>
     <button class="btn" id="bList">一覧<span class="count" id="cCount">0</span></button>
     <button class="btn primary" id="bSave">保存して次へ</button>
@@ -1693,6 +1694,7 @@
       '<div id="camHud">'+
         '<button class="cbtn" id="camEdit">記入</button>'+
         '<button class="cbtn" id="camNat">純正カメラ</button>'+
+        '<button class="cbtn" id="camMode">拡大へ</button>'+
         '<span id="camInfo"></span>'+
         '<button class="cbtn go" id="camOut">書き出す</button>'+
         '<button class="cbtn" id="camClose">閉じる</button>'+
@@ -1716,6 +1718,10 @@
     var info=document.getElementById("camInfo");
 
     var stream=null, raf=0, busy=false, pending=0, thumbUrl=null;
+    /* 拡大（続き）写真モード。
+       同じ損傷の寄りの写真を撮るためのもの。
+       白板を焼かず、写真番号も繰り上げず、直前に撮った1枚に紐づける。 */
+    var extraMode=false;
 
     function say(t){
       if(t){ msg.textContent=t; msg.hidden=false; } else { msg.hidden=true; }
@@ -2014,7 +2020,7 @@
         }
         // 白板の描画で落ちても映像だけは出し続ける
         try{
-          drawBoard(c,w,h,rowsOf(buildRec()));
+          if(!extraMode) drawBoard(c,w,h,rowsOf(buildRec()));
         }catch(e2){
           if(!loopErr++) say("白板を描けません: "+(e2&&e2.message||e2));
         }
@@ -2024,8 +2030,15 @@
     function startLoop(){ if(!raf) raf=requestAnimationFrame(loop); }
 
     function updateInfo(){
-      info.innerHTML="写真 <b>"+(fPhoto.value||"-")+"</b>　／　"+
-                     "未書き出し <b>"+pending+"</b> 枚";
+      var last=records.length?records[records.length-1]:null;
+      var head = extraMode
+        ? "拡大 <b>"+((last&&last.photo)||fPhoto.value||"-")+"</b> の続き（白板なし）"
+        : "写真 <b>"+(fPhoto.value||"-")+"</b>";
+      info.innerHTML=head+"　／　未書き出し <b>"+pending+"</b> 枚";
+      var mb=document.getElementById("camMode");
+      if(mb) mb.textContent = extraMode ? "白板へ" : "拡大へ";
+      cam.style.outline = extraMode ? "4px solid #f0a03c" : "";
+      cam.style.outlineOffset = extraMode ? "-4px" : "";
     }
 
     /* =========================================================
@@ -2050,23 +2063,51 @@
       var c=document.createElement("canvas");
       c.width=vw; c.height=vh;
       c.getContext("2d").drawImage(vid,0,0,vw,vh);
-      var rec=buildRec();
+      var isx=extraMode;
+      var rec=recFor(isx);
       c.toBlob(function(b){
         c.width=c.height=1;
         if(!b){ busy=false; toast("撮影できませんでした"); return; }
         var id=String(Date.now())+"-"+Math.random().toString(36).slice(2,8);
         withExif(b,exifFor(rec.at),function(b2){
-          dbPut({id:id,at:rec.at,rec:rec,blob:b2},function(ok){
+          dbPut({id:id,at:rec.at,rec:rec,blob:b2,extra:isx},function(ok){
             busy=false;
             if(!ok){ toast("写真をiPadに保存できませんでした"); return; }
-            pending++;
             setThumb(b2);
-            save();            // 記録を1件足して写真番号を繰り上げる
-            updateInfo();
-            if(pending===60) toast("未書き出しが60枚です。そろそろ書き出してください");
+            afterShot(isx);
           });
         });
       },"image/jpeg",0.92);
+    }
+
+    /* 拡大写真は直前に撮った1枚にぶら下げる。
+       撮影後は写真番号が進んでいるので、今の入力欄ではなく
+       最後に保存した記録を使わないと番号が1つずれる。 */
+    function recFor(isx){
+      var r;
+      if(isx && records.length){
+        var src=records[records.length-1], k;
+        r={};
+        for(k in src){ if(Object.prototype.hasOwnProperty.call(src,k)) r[k]=src[k]; }
+        r.at=stamp();                 // 時刻は今
+      }else{
+        r=buildRec();
+      }
+      return r;
+    }
+
+    function afterShot(isx){
+      pending++;
+      if(isx){
+        // 拡大は記録を増やさない。寄りを続けて撮れるようカメラに留まる
+        updateInfo();
+        toast("拡大写真を保存（未書き出し "+pending+" 枚）");
+      }else{
+        save();                       // 記録を1件足して写真番号を繰り上げる
+        updateInfo();
+        close(true);                  // 撮ったら記入画面に戻る
+      }
+      if(pending===60) toast("未書き出しが60枚です。そろそろ書き出してください");
     }
 
     /* ---- シャッター：指を置いて、離した瞬間に撮る ----
@@ -2106,6 +2147,7 @@
       if(r.bldg)  a.push("建物"+r.bldg);
       if(r.photo) a.push("写真"+r.photo);
       if(!a.length) a.push("no"+(i+1));
+      if(it.extra) a.push("拡大");
       return a.join("_")+"_"+(t||pad2(i+1))+".jpg";
     }
     function blobBytes(b,cb){
@@ -2126,7 +2168,7 @@
         wcv.width=W; wcv.height=H;
         var c=wcv.getContext("2d");
         c.drawImage(img,0,0,W,H);
-        drawBoard(c,W,H,rowsOf(it.rec||{}));
+        if(!it.extra) drawBoard(c,W,H,rowsOf(it.rec||{}));
         URL.revokeObjectURL(url);
         wcv.toBlob(function(b){
           if(!b){ cb(null); return; }
@@ -2147,7 +2189,7 @@
         compose(it,function(b){
           if(!b){ i++; step(); return; }
           blobBytes(b,function(u){
-            if(u) files.push({name:"白板入り/"+fileNameOf(it,i),data:u});
+            if(u) files.push({name:"写真/"+fileNameOf(it,i),data:u});
             if(!withOrig){ i++; step(); return; }
             blobBytes(it.blob,function(o){
               if(o) files.push({name:"原本/"+fileNameOf(it,i),data:o});
@@ -2197,7 +2239,8 @@
     /* =========================================================
        開く・閉じる
        ========================================================= */
-    function open(){
+    function open(extra){
+      extraMode=!!extra;
       cam.hidden=false;
       updateInfo();
       if(stream){
@@ -2249,17 +2292,16 @@
       this.value="";
       if(!f||busy) return;
       busy=true;
-      var rec=buildRec();
+      var isx=extraMode;
+      var rec=recFor(isx);
       blobBytes(f,function(u){
         var app1=u?extractApp1(u):null;
         var id=String(Date.now())+"-"+Math.random().toString(36).slice(2,8);
-        dbPut({id:id,at:rec.at,rec:rec,blob:f,app1:app1},function(ok){
+        dbPut({id:id,at:rec.at,rec:rec,blob:f,app1:app1,extra:isx},function(ok){
           busy=false;
           if(!ok){ toast("写真をiPadに保存できませんでした"); return; }
-          pending++;
           setThumb(f);
-          save();
-          updateInfo();
+          afterShot(isx);
         });
       });
     });
@@ -2270,7 +2312,18 @@
     document.getElementById("camOut").addEventListener("click",function(){ exportAll(false); });
 
     var bCam=document.getElementById("bCam");
-    if(bCam) bCam.addEventListener("click",open);
+    if(bCam) bCam.addEventListener("click",function(){ open(false); });
+    var bCamX=document.getElementById("bCamX");
+    if(bCamX) bCamX.addEventListener("click",function(){
+      if(!records.length){ toast("先に白板付きの写真を1枚撮ってください"); return; }
+      open(true);
+    });
+    document.getElementById("camMode").addEventListener("click",function(){
+      if(!extraMode&&!records.length){ toast("先に白板付きの写真を1枚撮ってください"); return; }
+      extraMode=!extraMode;
+      updateInfo();
+      toast(extraMode?"拡大写真（白板なし・番号は進みません）":"白板つき撮影に戻りました");
+    });
 
     /* 一覧シートに写真まわりの操作を足す */
     var foot=document.getElementById("sheetFoot");

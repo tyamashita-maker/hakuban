@@ -250,7 +250,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261113-170322";</script>
+<script>window.__BUILD__="20261113-171801";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -1692,12 +1692,14 @@
       '<div class="shut" id="shutR"></div>'+
       '<div id="camHud">'+
         '<button class="cbtn" id="camEdit">記入</button>'+
+        '<button class="cbtn" id="camNat">純正カメラ</button>'+
         '<span id="camInfo"></span>'+
         '<button class="cbtn go" id="camOut">書き出す</button>'+
         '<button class="cbtn" id="camClose">閉じる</button>'+
       '</div>'+
       '<img id="camThumb" alt="">'+
       '<div id="camFlash"></div>'+
+      '<input type="file" id="camFile" accept="image/*" capture="environment" style="display:none">'+
       '<div id="camMsg" hidden></div>';
     document.body.appendChild(cam);
 
@@ -1964,6 +1966,26 @@
       out.set(head,0); out.set(t,head.length);
       return out;
     }
+    function extractApp1(u){
+      // 純正カメラのJPEGから EXIF(APP1) をそのまま抜く。
+      // 合成するとcanvasがEXIFを落とすので、後で同じものを入れ直すため。
+      if(!u||u[0]!==0xFF||u[1]!==0xD8) return null;
+      var i=2;
+      while(i+4<=u.length){
+        if(u[i]!==0xFF) break;
+        var m=u[i+1];
+        if(m===0x01||(m>=0xD0&&m<=0xD8)){ i+=2; continue; }
+        if(m===0xDA||m===0xD9) break;
+        var len=(u[i+2]<<8)|u[i+3];
+        if(len<2) break;
+        if(m===0xE1&&i+8<=u.length&&
+           u[i+4]===0x45&&u[i+5]===0x78&&u[i+6]===0x69&&u[i+7]===0x66){
+          return new Uint8Array(u.subarray(i,i+2+len));
+        }
+        i+=2+len;
+      }
+      return null;
+    }
     function withExif(blob,app1,cb){
       if(!app1){ cb(blob); return; }
       blobBytes(blob,function(u){
@@ -1977,6 +1999,7 @@
     /* =========================================================
        プレビュー
        ========================================================= */
+    var loopErr=0;
     function loop(){
       if(!stream||cam.hidden){ raf=0; return; }
       var vw=vid.videoWidth, vh=vid.videoHeight;
@@ -1984,8 +2007,17 @@
         var w=Math.min(PREVW,vw), h=Math.round(w*vh/vw);
         if(pv.width!==w){ pv.width=w; pv.height=h; }
         var c=pv.getContext("2d");
-        c.drawImage(vid,0,0,w,h);
-        drawBoard(c,w,h,rowsOf(buildRec()));
+        try{
+          c.drawImage(vid,0,0,w,h);
+        }catch(e){
+          if(!loopErr++) say("映像を描けません: "+(e&&e.message||e));
+        }
+        // 白板の描画で落ちても映像だけは出し続ける
+        try{
+          drawBoard(c,w,h,rowsOf(buildRec()));
+        }catch(e2){
+          if(!loopErr++) say("白板を描けません: "+(e2&&e2.message||e2));
+        }
       }
       raf=requestAnimationFrame(loop);
     }
@@ -2098,7 +2130,8 @@
         URL.revokeObjectURL(url);
         wcv.toBlob(function(b){
           if(!b){ cb(null); return; }
-          withExif(b,exifFor(it.at),cb);   // 合成後も撮影日時を引き継ぐ
+          // 合成後も撮影日時を引き継ぐ。純正カメラの写真は本物のEXIFを使う
+          withExif(b,it.app1||exifFor(it.at),cb);
         },"image/jpeg",0.92);
       };
       img.onerror=function(){ URL.revokeObjectURL(url); cb(null); };
@@ -2188,8 +2221,12 @@
         say(""); startLoop();
       })["catch"](function(e){
         var n=e&&e.name;
-        if(n==="NotAllowedError") say("カメラの使用が許可されていません。\n設定でこのサイトのカメラを許可してください。");
-        else say("カメラを開けませんでした（"+(n||"不明")+"）");
+        if(n==="NotAllowedError")
+          say("カメラの使用が許可されていません。\n"+
+              "上の「純正カメラ」なら撮れます。");
+        else
+          say("カメラを開けませんでした（"+(n||"不明")+"）\n"+
+              "上の「純正カメラ」なら撮れます。");
       });
     }
     function close(keepStream){
@@ -2201,6 +2238,32 @@
         stream=null; vid.srcObject=null;
       }
     }
+
+    /* ---- 純正カメラで撮る ----
+       ホーム画面アプリではgetUserMediaが使えないことがあるため、
+       また画質を優先したいときのために、iOS純正カメラも使えるようにする。
+       こちらは本物のEXIFを持った写真がそのまま手に入る。 */
+    var camFile=document.getElementById("camFile");
+    camFile.addEventListener("change",function(){
+      var f=this.files&&this.files[0];
+      this.value="";
+      if(!f||busy) return;
+      busy=true;
+      var rec=buildRec();
+      blobBytes(f,function(u){
+        var app1=u?extractApp1(u):null;
+        var id=String(Date.now())+"-"+Math.random().toString(36).slice(2,8);
+        dbPut({id:id,at:rec.at,rec:rec,blob:f,app1:app1},function(ok){
+          busy=false;
+          if(!ok){ toast("写真をiPadに保存できませんでした"); return; }
+          pending++;
+          setThumb(f);
+          save();
+          updateInfo();
+        });
+      });
+    });
+    document.getElementById("camNat").addEventListener("click",function(){ camFile.click(); });
 
     document.getElementById("camEdit").addEventListener("click",function(){ close(true); });
     document.getElementById("camClose").addEventListener("click",function(){ close(false); });
@@ -2237,6 +2300,11 @@
       var wipe=document.getElementById("bWipe");
       if(wipe&&wipe.parentNode) wipe.parentNode.insertBefore(bzc,wipe);
     }
+
+    window.__camdbg={ rowsOf:rowsOf, drawBoard:drawBoard, buildRec:buildRec,
+                      state:function(){ return {stream:!!stream,hidden:cam.hidden,
+                        raf:raf,pw:pv.width,ph:pv.height,
+                        vw:vid.videoWidth,vh:vid.videoHeight}; } };
 
     /* 起動時に、前回ためた枚数を拾っておく */
     dbCount(function(n){

@@ -250,7 +250,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261113-174252";</script>
+<script>window.__BUILD__="20261113-175817";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -429,13 +429,22 @@
      スクリブルは 0 を o、1 を l / I と読み違えることがある。
      数字に読み替えたうえで、余計な英字は入らないようにする。
      W= / L= だけは cm・mm を使うので c と m を通す。            */
+  /* 全角をまとめて半角にそろえる。
+     手書き入力は全角で入ってくることがあり、
+     全角の Ｏ や 〇 は半角の o/O を見ているだけの処理をすり抜ける。
+     1文字が1文字に変わるだけなので、カーソル位置はずれない。 */
+  function toHalf(s){
+    return s.replace(/[！-～]/g,function(c){
+      return String.fromCharCode(c.charCodeAt(0)-0xFEE0);
+    }).replace(/　/g," ");
+  }
   function normNum(inp,units){
     var v=inp.value;
     if(!v)return;
     var pos=inp.selectionStart;
-    var out=v
-      .replace(/[０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);})
+    var out=toHalf(v)
       .replace(/[．。]/g,".")
+      .replace(/[〇○◯]/g,"0")
       .replace(/[oO]/g,"0")
       .replace(/[lI|]/g,"1")
       .replace(/[zZ]/g,"2")
@@ -464,9 +473,14 @@
   function normNote(inp){
     var v=inp.value;
     if(!v)return;
-    var pos=inp.selectionStart, out=v;
+    var pos=inp.selectionStart;
+    // 全角の英数字・記号だけ半角にそろえる。日本語はさわらない。
+    var out=v.replace(/[０-９Ａ-Ｚａ-ｚ．＝＋－／（）]/g,function(c){
+      return String.fromCharCode(c.charCodeAt(0)-0xFEE0);
+    });
+    // 〇 や ○ は数字のとなりにあるときだけ 0 とみなす（○印はそのまま残す）
     for(var i=0;i<2;i++){
-      out=out.replace(/([0-9.=±+\-×])[oO]/g,"$10").replace(/[oO]([0-9.])/g,"0$1")
+      out=out.replace(/([0-9.=±+\-×])[oO〇○◯]/g,"$10").replace(/[oO〇○◯]([0-9.])/g,"0$1")
              .replace(/([0-9.=±+\-×])[lI]/g,"$11").replace(/[lI]([0-9.])/g,"1$1")
              .replace(/([0-9.=±+\-×])[zZ]/g,"$12").replace(/[zZ]([0-9.])/g,"2$1");
     }

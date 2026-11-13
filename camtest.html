@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>カメラ確認 — 事業損失電子白板</title>
+<style>
+  :root{--bg:#12171b;--bg2:#1b2329;--line:#33424c;--ink:#e8eef2;--dim:#93a4b0;--amber:#f0a03c;--ok:#5fbf7f;--ng:#e2674f;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.6 "Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;
+       padding:14px;padding-bottom:40px;-webkit-text-size-adjust:100%;}
+  h1{font-size:17px;margin:0 0 4px;}
+  .sub{color:var(--dim);font-size:13px;margin:0 0 14px;}
+  section{background:var(--bg2);border:1px solid var(--line);border-radius:10px;
+          padding:12px;margin-bottom:12px;}
+  h2{font-size:14px;margin:0 0 8px;color:var(--amber);}
+  button,.fbtn{display:inline-block;background:#2c3942;color:var(--ink);
+    border:1px solid var(--line);border-radius:8px;padding:11px 16px;font-size:15px;
+    font-family:inherit;margin:0 6px 6px 0;cursor:pointer;-webkit-appearance:none;}
+  button:active,.fbtn:active{background:#3a4a55;}
+  button.main{background:var(--amber);color:#1a1200;border-color:var(--amber);font-weight:700;}
+  button[disabled]{opacity:.4;}
+  input[type=file]{display:none;}
+  pre{background:#0d1114;border:1px solid var(--line);border-radius:8px;padding:10px;
+      font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all;margin:8px 0 0;}
+  canvas{max-width:100%;display:block;border:1px solid var(--line);border-radius:8px;margin-top:8px;background:#000;}
+  .note{color:var(--dim);font-size:13px;}
+</style>
+</head>
+<body>
+
+<h1>カメラ確認ページ</h1>
+<p class="sub">本番アプリではありません。iPadが何画素出せるかと、左下の白板の見え方を確かめるためのものです。</p>
+
+<section>
+  <h2>1. この端末</h2>
+  <pre id="env">…</pre>
+</section>
+
+<section>
+  <h2>2. 解像度を調べる</h2>
+  <p class="note">背面カメラに各サイズを要求して、通るかどうかを調べます。10秒ほどかかります。</p>
+  <button id="bProbe" class="main">解像度を調べる</button>
+  <pre id="probe">未実行</pre>
+</section>
+
+<section>
+  <h2>3. ① 映像から撮影（1タップ・速い）</h2>
+  <p class="note">映像が出たら、白板入りの画面がそのまま撮れます。</p>
+  <button id="bLive">カメラを開始</button>
+  <button id="bCap" disabled>この画で撮影</button>
+  <button id="bStop" disabled>停止</button>
+  <canvas id="prev" width="640" height="360"></canvas>
+</section>
+
+<section>
+  <h2>4. ② 純正カメラで撮影（3タップ・高画質）</h2>
+  <p class="note">iPadのカメラが開きます。撮って「写真を使用」を押すと、左下に白板を合成します。</p>
+  <label class="fbtn" for="fin">純正カメラで撮影</label>
+  <input type="file" id="fin" accept="image/*" capture="environment">
+</section>
+
+<section>
+  <h2>5. 結果</h2>
+  <pre id="res">まだ撮影していません</pre>
+  <button id="bSave" disabled>この写真を保存</button>
+  <canvas id="out"></canvas>
+</section>
+
+<video id="v" playsinline muted autoplay style="display:none"></video>
+
+<script>
+(function(){
+  "use strict";
+  var $=function(id){ return document.getElementById(id); };
+  var v=$("v"), prev=$("prev"), out=$("out");
+  var stream=null, raf=0, blob=null;
+
+  /* ---------- 端末情報 ---------- */
+  var standalone = (window.navigator.standalone===true) ||
+                   (window.matchMedia && window.matchMedia("(display-mode:standalone)").matches);
+  $("env").textContent =
+    "画面: "+screen.width+" x "+screen.height+"  (dpr "+(window.devicePixelRatio||1)+")\n"+
+    "ホーム画面アプリ: "+(standalone?"はい":"いいえ（Safari）")+"\n"+
+    "getUserMedia: "+((navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)?"使える":"使えない")+"\n"+
+    "共有保存: "+(navigator.share?"使える":"使えない")+"\n"+
+    "UA: "+navigator.userAgent;
+
+  /* ---------- 白板（横長の見本） ---------- */
+  var ROWS=[
+    ["所有者","山下 太郎"],
+    ["場所","大分市○○町1-2-3"],
+    ["番号","調査 12 ／ 建物 1 ／ 写真 17"],
+    ["損傷","外壁　ひび割れ"],
+    ["寸法","W=0.3mm　L=1.2m"],
+    ["備考","A=±0　B=-3　R6.11.13"]
+  ];
+  function drawBoard(ctx,W,H){
+    var pw=Math.round(W*0.40), ph=Math.round(pw*0.58);
+    var px=Math.round(W*0.025), py=H-ph-Math.round(H*0.035);
+    ctx.save();
+    ctx.fillStyle="#ffffff"; ctx.fillRect(px,py,pw,ph);
+    ctx.strokeStyle="#000000"; ctx.lineWidth=Math.max(2,Math.round(pw*0.005));
+    ctx.strokeRect(px,py,pw,ph);
+    var pad=Math.round(pw*0.032), ix=px+pad, iw=pw-pad*2;
+    var rh=(ph-pad*2)/ROWS.length;
+    ctx.textBaseline="middle"; ctx.textAlign="left";
+    for(var i=0;i<ROWS.length;i++){
+      var top=py+pad+rh*i, cy=top+rh/2;
+      if(i>0){
+        ctx.strokeStyle="#c8c8c8"; ctx.lineWidth=Math.max(1,Math.round(pw*0.002));
+        ctx.beginPath(); ctx.moveTo(ix,top); ctx.lineTo(ix+iw,top); ctx.stroke();
+      }
+      ctx.fillStyle="#555555";
+      ctx.font="bold "+Math.round(rh*0.30)+"px sans-serif";
+      ctx.fillText(ROWS[i][0], ix, cy);
+      ctx.fillStyle="#000000";
+      ctx.font="bold "+Math.round(rh*0.44)+"px sans-serif";
+      ctx.fillText(ROWS[i][1], ix+iw*0.21, cy);
+    }
+    ctx.restore();
+  }
+
+  /* ---------- 解像度しらべ ---------- */
+  var SIZES=[[4032,3024],[3840,2160],[2560,1440],[1920,1080],[1280,720]];
+  function probeOne(i,lines,done){
+    if(i>=SIZES.length){ done(lines); return; }
+    var w=SIZES[i][0], h=SIZES[i][1];
+    navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ideal:"environment"}, width:{exact:w}, height:{exact:h} }
+    }).then(function(s){
+      var t=s.getVideoTracks()[0], st=t.getSettings?t.getSettings():{};
+      lines.push("OK   "+w+" x "+h+"   実際: "+(st.width||"?")+" x "+(st.height||"?"));
+      t.stop();
+      $("probe").textContent=lines.join("\n");
+      probeOne(i+1,lines,done);
+    })["catch"](function(){
+      lines.push("NG   "+w+" x "+h);
+      $("probe").textContent=lines.join("\n");
+      probeOne(i+1,lines,done);
+    });
+  }
+  $("bProbe").onclick=function(){
+    if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)){
+      $("probe").textContent="このブラウザではカメラが使えません"; return;
+    }
+    $("bProbe").disabled=true; $("probe").textContent="調べています…";
+    probeOne(0,[],function(lines){
+      lines.push("");
+      lines.push("※ OK の一番上が、この端末で映像から取れる最大サイズです");
+      $("probe").textContent=lines.join("\n");
+      $("bProbe").disabled=false;
+    });
+  };
+
+  /* ---------- ① 映像から ---------- */
+  function loop(){
+    if(!stream) return;
+    var vw=v.videoWidth, vh=v.videoHeight;
+    if(vw&&vh){
+      if(prev.width!==960){ prev.width=960; prev.height=Math.round(960*vh/vw); }
+      var c=prev.getContext("2d");
+      c.drawImage(v,0,0,prev.width,prev.height);
+      drawBoard(c,prev.width,prev.height);
+    }
+    raf=requestAnimationFrame(loop);
+  }
+  $("bLive").onclick=function(){
+    navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ideal:"environment"}, width:{ideal:4096}, height:{ideal:2160} }
+    }).then(function(s){
+      stream=s; v.srcObject=s; v.play();
+      var t=s.getVideoTracks()[0], st=t.getSettings?t.getSettings():{};
+      $("res").textContent="映像サイズ: "+(st.width||"?")+" x "+(st.height||"?");
+      $("bCap").disabled=false; $("bStop").disabled=false; $("bLive").disabled=true;
+      loop();
+    })["catch"](function(e){
+      $("res").textContent="カメラを開けません: "+(e&&e.name?e.name:e);
+    });
+  };
+  $("bStop").onclick=function(){
+    if(raf)cancelAnimationFrame(raf); raf=0;
+    if(stream){
+      var ts=stream.getTracks();
+      for(var i=0;i<ts.length;i++){ ts[i].stop(); }
+      stream=null;
+    }
+    $("bCap").disabled=true; $("bStop").disabled=true; $("bLive").disabled=false;
+  };
+  $("bCap").onclick=function(){
+    if(!stream) return;
+    var W=v.videoWidth, H=v.videoHeight;
+    out.width=W; out.height=H;
+    var c=out.getContext("2d");
+    c.drawImage(v,0,0,W,H);
+    drawBoard(c,W,H);
+    finish(W,H,"① 映像から");
+  };
+
+  /* ---------- ② 純正カメラ ---------- */
+  $("fin").onchange=function(){
+    var f=this.files&&this.files[0];
+    if(!f) return;
+    $("res").textContent="読み込み中…";
+    var url=URL.createObjectURL(f);
+    var kb=Math.round(f.size/1024);
+    var img=new Image();
+    img.onload=function(){
+      var W=img.naturalWidth, H=img.naturalHeight;
+      out.width=W; out.height=H;
+      var c=out.getContext("2d");
+      c.drawImage(img,0,0,W,H);
+      drawBoard(c,W,H);
+      URL.revokeObjectURL(url);
+      finish(W,H,"② 純正カメラ（元ファイル "+kb+" KB）");
+    };
+    img.onerror=function(){ $("res").textContent="画像を読めませんでした"; };
+    img.src=url;
+    this.value="";
+  };
+
+  /* ---------- 結果 ---------- */
+  function finish(W,H,how){
+    var man=Math.round(W*H/10000);
+    out.toBlob(function(b){
+      blob=b;
+      $("res").textContent =
+        how+"\n"+
+        "サイズ: "+W+" x "+H+"   （約 "+man+" 万画素）\n"+
+        "書き出し: "+(b?Math.round(b.size/1024)+" KB":"失敗");
+      $("bSave").disabled=!b;
+    },"image/jpeg",0.92);
+  }
+
+  $("bSave").onclick=function(){
+    if(!blob) return;
+    var name="camtest-"+Date.now()+".jpg";
+    var file=null;
+    try{ file=new File([blob],name,{type:"image/jpeg"}); }catch(e){}
+    if(file && navigator.canShare && navigator.canShare({files:[file]})){
+      navigator.share({files:[file]})["catch"](function(){});
+    }else{
+      var a=document.createElement("a");
+      a.href=URL.createObjectURL(blob); a.download=name;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+  };
+})();
+</script>
+</body>
+</html>

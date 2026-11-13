@@ -250,7 +250,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261111-151004";</script>
+<script>window.__BUILD__="20261113-170322";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -259,6 +259,7 @@
     <button class="btn ghost" id="bClear">この面をクリア</button>
     <button class="btn ghost" id="bPrev">前の分を保存</button>
     <span class="grow"></span>
+    <button class="btn" id="bCam">カメラ</button>
     <button class="btn" id="bShoot">撮影</button>
     <button class="btn" id="bList">一覧<span class="count" id="cCount">0</span></button>
     <button class="btn primary" id="bSave">保存して次へ</button>
@@ -1635,6 +1636,616 @@
       if(changed){ persist(); }
     }catch(e){}
   })();
+  /* =========================================================
+     カメラ撮影モード
+     iPadのカメラ映像の左下に白板を合成して1枚にする。
+     屋外で画面が暗くて読めない問題を「画面を写さない」ことで回避する。
+
+     写真は撮った時点ではアプリの中（IndexedDB）に溜めるだけにする。
+     1枚ずつ保存しようとするとiOSが毎回確認を出して現場で使えないため、
+     休憩時に「書き出す」でZIP1本にまとめる（確認は1回で済む）。
+     ========================================================= */
+  (function(){
+    var FONT='"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",sans-serif';
+    var BOARD_W=0.40;        // 画面の横幅に対する白板の幅
+    var PREVW=1280;          // プレビューの描画幅（撮影画質とは無関係）
+
+    /* ---- 見た目 ---- */
+    var css=document.createElement("style");
+    css.textContent=
+    "#cam{position:fixed;inset:0;z-index:45;background:#000;display:flex;"+
+      "align-items:center;justify-content:center;}"+
+    "#cam[hidden]{display:none!important;}"+
+    "#camPv{max-width:100%;max-height:100%;display:block;}"+
+    ".shut{position:absolute;top:0;bottom:0;width:92px;z-index:3;"+
+      "background:rgba(255,255,255,.07);border:0;touch-action:none;"+
+      "display:flex;align-items:center;justify-content:center;}"+
+    ".shut:before{content:'';width:46px;height:46px;border-radius:50%;"+
+      "border:4px solid rgba(255,255,255,.75);background:rgba(255,255,255,.2);}"+
+    ".shut.armed{background:rgba(240,160,60,.30);}"+
+    ".shut.armed:before{border-color:#f0a03c;background:rgba(240,160,60,.5);}"+
+    "#shutL{left:0;} #shutR{right:0;}"+
+    "#camHud{position:absolute;top:0;left:0;right:0;z-index:4;display:flex;"+
+      "align-items:center;gap:8px;padding:8px 104px;"+
+      "background:linear-gradient(rgba(0,0,0,.62),rgba(0,0,0,0));}"+
+    "#camHud .cbtn{background:rgba(32,42,49,.9);color:#e8eef2;border:1px solid #44555f;"+
+      "border-radius:8px;padding:9px 14px;font:700 14px "+FONT+";}"+
+    "#camHud .cbtn.go{background:#f0a03c;color:#1a1200;border-color:#f0a03c;}"+
+    "#camInfo{color:#fff;font:700 14px "+FONT+";text-shadow:0 1px 3px #000;flex:1;text-align:center;}"+
+    "#camInfo b{color:#f0a03c;}"+
+    "#camThumb{position:absolute;right:104px;bottom:14px;width:112px;z-index:4;"+
+      "border:2px solid rgba(255,255,255,.8);border-radius:6px;display:none;}"+
+    "#camFlash{position:absolute;inset:0;z-index:5;background:#fff;opacity:0;"+
+      "pointer-events:none;transition:opacity .22s;}"+
+    "#camFlash.on{opacity:.85;transition:none;}"+
+    "#camMsg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;"+
+      "color:#fff;font:700 15px "+FONT+";text-align:center;line-height:1.7;"+
+      "background:rgba(0,0,0,.72);padding:16px 22px;border-radius:12px;max-width:70%;}";
+    document.head.appendChild(css);
+
+    /* ---- 画面を組み立てる ---- */
+    var cam=document.createElement("div");
+    cam.id="cam"; cam.hidden=true;
+    cam.innerHTML=
+      '<canvas id="camPv"></canvas>'+
+      '<div class="shut" id="shutL"></div>'+
+      '<div class="shut" id="shutR"></div>'+
+      '<div id="camHud">'+
+        '<button class="cbtn" id="camEdit">記入</button>'+
+        '<span id="camInfo"></span>'+
+        '<button class="cbtn go" id="camOut">書き出す</button>'+
+        '<button class="cbtn" id="camClose">閉じる</button>'+
+      '</div>'+
+      '<img id="camThumb" alt="">'+
+      '<div id="camFlash"></div>'+
+      '<div id="camMsg" hidden></div>';
+    document.body.appendChild(cam);
+
+    var vid=document.createElement("video");
+    vid.playsInline=true; vid.muted=true; vid.autoplay=true;
+    vid.setAttribute("playsinline",""); vid.setAttribute("muted","");
+    vid.style.display="none";
+    document.body.appendChild(vid);
+
+    var pv=document.getElementById("camPv");
+    var msg=document.getElementById("camMsg");
+    var thumb=document.getElementById("camThumb");
+    var flash=document.getElementById("camFlash");
+    var info=document.getElementById("camInfo");
+
+    var stream=null, raf=0, busy=false, pending=0, thumbUrl=null;
+
+    function say(t){
+      if(t){ msg.textContent=t; msg.hidden=false; } else { msg.hidden=true; }
+    }
+
+    /* =========================================================
+       白板（横長・入力済みの欄だけ）
+       ========================================================= */
+    function rowsOf(r){
+      var rows=[];
+      if(r.owner) rows.push(["所有者",r.owner]);
+      if(r.place) rows.push(["場所",r.place]);
+      var id=[];
+      if(r.no)    id.push("調査 "+r.no);
+      if(r.bldg)  id.push("建物 "+r.bldg);
+      if(r.photo) id.push("写真 "+r.photo);
+      if(id.length) rows.push(["番号",id.join("　")]);
+      if(r.date)  rows.push(["年月日",r.date]);
+      if(r.part)  rows.push(["部位",r.part]);
+      var dm=[];
+      if(r.damage) dm.push(r.damage);
+      if(r.extra)  dm.push(r.extra);
+      if(dm.length) rows.push(["損傷",dm.join("　")]);
+      var wl=[];
+      if(r.w) wl.push("W＝"+r.w);
+      if(r.l) wl.push("L＝"+r.l);
+      if(wl.length) rows.push(["寸法",wl.join("　")]);
+      if(r.note)  rows.push(["備考",r.note]);
+      return rows;
+    }
+
+    function drawBoard(ctx,W,H,rows){
+      if(!rows||!rows.length) return;
+      var pw=Math.round(W*BOARD_W);
+      var rh=Math.round(pw*0.082);
+      var pad=Math.round(pw*0.030);
+      var ph=pad*2+rh*rows.length;
+      var px=Math.round(W*0.022);
+      var py=H-ph-Math.round(H*0.030);
+      if(py<Math.round(H*0.02)) py=Math.round(H*0.02);
+      ctx.save();
+      ctx.fillStyle="#ffffff"; ctx.fillRect(px,py,pw,ph);
+      ctx.strokeStyle="#000000";
+      ctx.lineWidth=Math.max(2,Math.round(pw*0.005));
+      ctx.strokeRect(px,py,pw,ph);
+      var ix=px+pad, iw=pw-pad*2, lw=Math.round(iw*0.19);
+      ctx.textBaseline="middle"; ctx.textAlign="left";
+      for(var i=0;i<rows.length;i++){
+        var top=py+pad+rh*i, cy=top+rh/2;
+        if(i>0){
+          ctx.strokeStyle="#c9c9c9";
+          ctx.lineWidth=Math.max(1,Math.round(pw*0.0018));
+          ctx.beginPath(); ctx.moveTo(ix,top); ctx.lineTo(ix+iw,top); ctx.stroke();
+        }
+        ctx.fillStyle="#666666";
+        ctx.font="bold "+Math.round(rh*0.33)+"px "+FONT;
+        ctx.fillText(rows[i][0],ix,cy);
+        ctx.fillStyle="#000000";
+        var fs=Math.round(rh*0.52), maxw=iw-lw;
+        ctx.font="bold "+fs+"px "+FONT;
+        while(fs>9 && ctx.measureText(rows[i][1]).width>maxw){
+          fs-=1; ctx.font="bold "+fs+"px "+FONT;
+        }
+        ctx.fillText(rows[i][1],ix+lw,cy);
+      }
+      ctx.restore();
+    }
+
+    /* =========================================================
+       写真置き場（IndexedDB）
+       ========================================================= */
+    var DB=null, DBN="jsb.photos", ST="ph";
+    function dbOpen(cb){
+      if(DB){ cb(DB); return; }
+      try{
+        var rq=indexedDB.open(DBN,1);
+        rq.onupgradeneeded=function(){
+          var d=rq.result;
+          if(!d.objectStoreNames.contains(ST)) d.createObjectStore(ST,{keyPath:"id"});
+        };
+        rq.onsuccess=function(){ DB=rq.result; cb(DB); };
+        rq.onerror=function(){ cb(null); };
+      }catch(e){ cb(null); }
+    }
+    function dbPut(item,cb){
+      dbOpen(function(d){
+        if(!d){ cb(false); return; }
+        try{
+          var tx=d.transaction(ST,"readwrite");
+          tx.objectStore(ST).put(item);
+          tx.oncomplete=function(){ cb(true); };
+          tx.onerror=function(){ cb(false); };
+          tx.onabort=function(){ cb(false); };
+        }catch(e){ cb(false); }
+      });
+    }
+    function dbAll(cb){
+      dbOpen(function(d){
+        if(!d){ cb([]); return; }
+        try{
+          var rq=d.transaction(ST,"readonly").objectStore(ST).getAll();
+          rq.onsuccess=function(){
+            var a=rq.result||[];
+            a.sort(function(x,y){ return x.id<y.id?-1:(x.id>y.id?1:0); });
+            cb(a);
+          };
+          rq.onerror=function(){ cb([]); };
+        }catch(e){ cb([]); }
+      });
+    }
+    function dbCount(cb){
+      dbOpen(function(d){
+        if(!d){ cb(0); return; }
+        try{
+          var rq=d.transaction(ST,"readonly").objectStore(ST).count();
+          rq.onsuccess=function(){ cb(rq.result||0); };
+          rq.onerror=function(){ cb(0); };
+        }catch(e){ cb(0); }
+      });
+    }
+    function dbClear(cb){
+      dbOpen(function(d){
+        if(!d){ cb(false); return; }
+        try{
+          var tx=d.transaction(ST,"readwrite");
+          tx.objectStore(ST).clear();
+          tx.oncomplete=function(){ cb(true); };
+          tx.onerror=function(){ cb(false); };
+        }catch(e){ cb(false); }
+      });
+    }
+
+    /* =========================================================
+       ZIP（無圧縮・外部ライブラリなし＝圏外でも動く）
+       ========================================================= */
+    var CRCT=(function(){
+      var t=[],c,n,k;
+      for(n=0;n<256;n++){ c=n; for(k=0;k<8;k++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1); t[n]=c>>>0; }
+      return t;
+    })();
+    function crc32(u8){
+      var c=0xFFFFFFFF;
+      for(var i=0;i<u8.length;i++) c=CRCT[(c^u8[i])&0xFF]^(c>>>8);
+      return (c^0xFFFFFFFF)>>>0;
+    }
+    function utf8(s){
+      if(window.TextEncoder) return new TextEncoder().encode(s);
+      var b=unescape(encodeURIComponent(s)), u=new Uint8Array(b.length);
+      for(var i=0;i<b.length;i++) u[i]=b.charCodeAt(i);
+      return u;
+    }
+    function zipBuild(files){
+      var parts=[], dir=[], off=0, i;
+      for(i=0;i<files.length;i++){
+        var nb=utf8(files[i].name), data=files[i].data, crc=crc32(data);
+        var lh=new Uint8Array(30+nb.length), lv=new DataView(lh.buffer);
+        lv.setUint32(0,0x04034b50,true); lv.setUint16(4,20,true);
+        lv.setUint16(6,0x0800,true);     lv.setUint16(8,0,true);
+        lv.setUint16(10,0,true);         lv.setUint16(12,0x2821,true);
+        lv.setUint32(14,crc,true);       lv.setUint32(18,data.length,true);
+        lv.setUint32(22,data.length,true);
+        lv.setUint16(26,nb.length,true); lv.setUint16(28,0,true);
+        lh.set(nb,30);
+        parts.push(lh); parts.push(data);
+        var ch=new Uint8Array(46+nb.length), cv=new DataView(ch.buffer);
+        cv.setUint32(0,0x02014b50,true); cv.setUint16(4,20,true);
+        cv.setUint16(6,20,true);         cv.setUint16(8,0x0800,true);
+        cv.setUint16(10,0,true);         cv.setUint16(12,0,true);
+        cv.setUint16(14,0x2821,true);    cv.setUint32(16,crc,true);
+        cv.setUint32(20,data.length,true); cv.setUint32(24,data.length,true);
+        cv.setUint16(28,nb.length,true); cv.setUint16(30,0,true);
+        cv.setUint16(32,0,true);         cv.setUint16(34,0,true);
+        cv.setUint16(36,0,true);         cv.setUint32(38,0,true);
+        cv.setUint32(42,off,true);
+        ch.set(nb,46);
+        dir.push(ch);
+        off+=lh.length+data.length;
+      }
+      var dsz=0;
+      for(i=0;i<dir.length;i++) dsz+=dir[i].length;
+      var eo=new Uint8Array(22), ev=new DataView(eo.buffer);
+      ev.setUint32(0,0x06054b50,true); ev.setUint16(4,0,true);
+      ev.setUint16(6,0,true);
+      ev.setUint16(8,files.length,true); ev.setUint16(10,files.length,true);
+      ev.setUint32(12,dsz,true);        ev.setUint32(16,off,true);
+      ev.setUint16(20,0,true);
+      return new Blob(parts.concat(dir,[eo]),{type:"application/zip"});
+    }
+
+    /* =========================================================
+       EXIF（撮影日時）を自分で書き込む
+
+       canvasが作るJPEGにはEXIFが一切付かない。
+       そのままだと「撮影日時を持たない画像」になり、
+       後から写真台帳に突き合わせる手がかりがCSVだけになってしまう。
+       そこで撮影した瞬間の時刻を DateTimeOriginal として自前で埋める。
+       合成後にも同じものを入れ直すので、原本と白板入りで時刻がずれない。
+       ========================================================= */
+    function ascii(s){
+      var u=new Uint8Array(s.length);
+      for(var i=0;i<s.length;i++) u[i]=s.charCodeAt(i)&0x7F;
+      return u;
+    }
+    function tag(v,p,t,ty,n,off){
+      v.setUint16(p,t,true); v.setUint16(p+2,ty,true);
+      v.setUint32(p+4,n,true); v.setUint32(p+8,off,true);
+      return p+12;
+    }
+    function exifFor(at){
+      // at は "YYYY-MM-DD HH:MM:SS"。EXIFは "YYYY:MM:DD HH:MM:SS"
+      var s=String(at||"").replace(/-/g,":");
+      if(!/^\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return null;
+      var dt=ascii(s+"\0");                       // 20
+      var sw=ascii("Jigyosonshitsu e-board\0");
+      if(sw.length%2){ var q=new Uint8Array(sw.length+1); q.set(sw); sw=q; }
+      var ifd0=8, ifd0sz=2+3*12+4;
+      var swOff=ifd0+ifd0sz;
+      var dtOff=swOff+sw.length;
+      var exOff=dtOff+dt.length;
+      var exSz=2+3*12+4;
+      var dtoOff=exOff+exSz;
+      var dtdOff=dtoOff+dt.length;
+      var total=dtdOff+dt.length;
+      var t=new Uint8Array(total), v=new DataView(t.buffer);
+      t[0]=0x49; t[1]=0x49;                       // "II" リトルエンディアン
+      v.setUint16(2,42,true); v.setUint32(4,8,true);
+      var p=ifd0;
+      v.setUint16(p,3,true); p+=2;
+      p=tag(v,p,0x0131,2,sw.length,swOff);        // Software
+      p=tag(v,p,0x0132,2,dt.length,dtOff);        // DateTime
+      p=tag(v,p,0x8769,4,1,exOff);                // ExifIFD へのポインタ
+      v.setUint32(p,0,true);
+      t.set(sw,swOff); t.set(dt,dtOff);
+      p=exOff;
+      v.setUint16(p,3,true); p+=2;
+      v.setUint16(p,0x9000,true); v.setUint16(p+2,7,true); v.setUint32(p+4,4,true);
+      t[p+8]=0x30; t[p+9]=0x32; t[p+10]=0x33; t[p+11]=0x30;   // ExifVersion 0230
+      p+=12;
+      p=tag(v,p,0x9003,2,dt.length,dtoOff);       // DateTimeOriginal
+      p=tag(v,p,0x9004,2,dt.length,dtdOff);       // DateTimeDigitized
+      v.setUint32(p,0,true);
+      t.set(dt,dtoOff); t.set(dt,dtdOff);
+      var head=new Uint8Array(10), hv=new DataView(head.buffer);
+      hv.setUint16(0,0xFFE1,false);               // APP1
+      hv.setUint16(2,2+6+total,false);
+      head[4]=0x45; head[5]=0x78; head[6]=0x69; head[7]=0x66; head[8]=0; head[9]=0;
+      var out=new Uint8Array(head.length+total);
+      out.set(head,0); out.set(t,head.length);
+      return out;
+    }
+    function withExif(blob,app1,cb){
+      if(!app1){ cb(blob); return; }
+      blobBytes(blob,function(u){
+        if(!u||u[0]!==0xFF||u[1]!==0xD8){ cb(blob); return; }
+        try{
+          cb(new Blob([u.subarray(0,2),app1,u.subarray(2)],{type:"image/jpeg"}));
+        }catch(e){ cb(blob); }
+      });
+    }
+
+    /* =========================================================
+       プレビュー
+       ========================================================= */
+    function loop(){
+      if(!stream||cam.hidden){ raf=0; return; }
+      var vw=vid.videoWidth, vh=vid.videoHeight;
+      if(vw&&vh){
+        var w=Math.min(PREVW,vw), h=Math.round(w*vh/vw);
+        if(pv.width!==w){ pv.width=w; pv.height=h; }
+        var c=pv.getContext("2d");
+        c.drawImage(vid,0,0,w,h);
+        drawBoard(c,w,h,rowsOf(buildRec()));
+      }
+      raf=requestAnimationFrame(loop);
+    }
+    function startLoop(){ if(!raf) raf=requestAnimationFrame(loop); }
+
+    function updateInfo(){
+      info.innerHTML="写真 <b>"+(fPhoto.value||"-")+"</b>　／　"+
+                     "未書き出し <b>"+pending+"</b> 枚";
+    }
+
+    /* =========================================================
+       撮影
+       ========================================================= */
+    function doFlash(){
+      flash.classList.add("on");
+      setTimeout(function(){ flash.classList.remove("on"); },30);
+    }
+    function setThumb(b){
+      if(thumbUrl) URL.revokeObjectURL(thumbUrl);
+      thumbUrl=URL.createObjectURL(b);
+      thumb.src=thumbUrl; thumb.style.display="block";
+    }
+
+    function capture(){
+      if(!stream||busy) return;
+      var vw=vid.videoWidth, vh=vid.videoHeight;
+      if(!vw||!vh) return;
+      busy=true;
+      doFlash();
+      var c=document.createElement("canvas");
+      c.width=vw; c.height=vh;
+      c.getContext("2d").drawImage(vid,0,0,vw,vh);
+      var rec=buildRec();
+      c.toBlob(function(b){
+        c.width=c.height=1;
+        if(!b){ busy=false; toast("撮影できませんでした"); return; }
+        var id=String(Date.now())+"-"+Math.random().toString(36).slice(2,8);
+        withExif(b,exifFor(rec.at),function(b2){
+          dbPut({id:id,at:rec.at,rec:rec,blob:b2},function(ok){
+            busy=false;
+            if(!ok){ toast("写真をiPadに保存できませんでした"); return; }
+            pending++;
+            setThumb(b2);
+            save();            // 記録を1件足して写真番号を繰り上げる
+            updateInfo();
+            if(pending===60) toast("未書き出しが60枚です。そろそろ書き出してください");
+          });
+        });
+      },"image/jpeg",0.92);
+    }
+
+    /* ---- シャッター：指を置いて、離した瞬間に撮る ----
+       押し込む動作よりも離す動作の方がブレないため。
+       親指が元々ある左右の縁に帯を置いて、狙わずに押せるようにする。 */
+    function wireShutter(elm){
+      var armed=false, sx=0, sy=0;
+      elm.addEventListener("pointerdown",function(e){
+        e.preventDefault();
+        armed=true; sx=e.clientX; sy=e.clientY;
+        elm.classList.add("armed");
+      });
+      elm.addEventListener("pointerup",function(e){
+        elm.classList.remove("armed");
+        if(!armed) return;
+        armed=false;
+        var dx=e.clientX-sx, dy=e.clientY-sy;
+        if(Math.abs(dx)>60||Math.abs(dy)>120) return;   // 持ち替えは無視
+        capture();
+      });
+      ["pointercancel","pointerleave"].forEach(function(ev){
+        elm.addEventListener(ev,function(){ armed=false; elm.classList.remove("armed"); });
+      });
+    }
+    wireShutter(document.getElementById("shutL"));
+    wireShutter(document.getElementById("shutR"));
+
+    /* =========================================================
+       書き出し（ZIP1本）
+       ========================================================= */
+    function pad2(n){ return (n<10?"0":"")+n; }
+    function fileNameOf(it,i){
+      var r=it.rec||{};
+      var t=String(it.at||"").replace(/[^0-9]/g,"").slice(8,14);
+      var a=[];
+      if(r.no)    a.push("調査"+r.no);
+      if(r.bldg)  a.push("建物"+r.bldg);
+      if(r.photo) a.push("写真"+r.photo);
+      if(!a.length) a.push("no"+(i+1));
+      return a.join("_")+"_"+(t||pad2(i+1))+".jpg";
+    }
+    function blobBytes(b,cb){
+      if(b.arrayBuffer){ b.arrayBuffer().then(function(ab){ cb(new Uint8Array(ab)); },
+                                              function(){ cb(null); }); return; }
+      var fr=new FileReader();
+      fr.onload=function(){ cb(new Uint8Array(fr.result)); };
+      fr.onerror=function(){ cb(null); };
+      fr.readAsArrayBuffer(b);
+    }
+
+    var wcv=document.createElement("canvas");
+    function compose(it,cb){     // 保存してある原本に白板を焼き込む
+      var url=URL.createObjectURL(it.blob);
+      var img=new Image();
+      img.onload=function(){
+        var W=img.naturalWidth, H=img.naturalHeight;
+        wcv.width=W; wcv.height=H;
+        var c=wcv.getContext("2d");
+        c.drawImage(img,0,0,W,H);
+        drawBoard(c,W,H,rowsOf(it.rec||{}));
+        URL.revokeObjectURL(url);
+        wcv.toBlob(function(b){
+          if(!b){ cb(null); return; }
+          withExif(b,exifFor(it.at),cb);   // 合成後も撮影日時を引き継ぐ
+        },"image/jpeg",0.92);
+      };
+      img.onerror=function(){ URL.revokeObjectURL(url); cb(null); };
+      img.src=url;
+    }
+
+    function buildFiles(items,withOrig,done){
+      var files=[], i=0;
+      function step(){
+        if(i>=items.length){ done(files); return; }
+        var it=items[i];
+        say("白板を焼き込んでいます…\n"+(i+1)+" / "+items.length+" 枚");
+        compose(it,function(b){
+          if(!b){ i++; step(); return; }
+          blobBytes(b,function(u){
+            if(u) files.push({name:"白板入り/"+fileNameOf(it,i),data:u});
+            if(!withOrig){ i++; step(); return; }
+            blobBytes(it.blob,function(o){
+              if(o) files.push({name:"原本/"+fileNameOf(it,i),data:o});
+              i++; step();
+            });
+          });
+        });
+      }
+      step();
+    }
+
+    function saveBlob(blob,name){
+      var a=document.createElement("a");
+      a.href=URL.createObjectURL(blob); a.download=name; a.style.display="none";
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){
+        if(a.parentNode)a.parentNode.removeChild(a);
+        URL.revokeObjectURL(a.href);
+      },4000);
+    }
+
+    function exportAll(withOrig){
+      dbAll(function(items){
+        if(!items.length){ toast("書き出す写真がありません"); return; }
+        say("準備しています…");
+        buildFiles(items,withOrig,function(files){
+          say("ZIPにまとめています…");
+          try{
+            var csv=buildCsv();
+            files.push({name:"記録.csv",data:utf8(csv)});
+          }catch(e){}
+          setTimeout(function(){
+            var zip;
+            try{ zip=zipBuild(files); }
+            catch(e){ say(""); toast("ZIPを作れませんでした。枚数を減らして試してください"); return; }
+            var d=new Date();
+            var nm="事業損失_写真_"+d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+
+                   "_"+pad2(d.getHours())+pad2(d.getMinutes())+".zip";
+            saveBlob(zip,nm);
+            say("");
+            toast(items.length+"枚を書き出しました（"+nm+"）");
+          },50);
+        });
+      });
+    }
+
+    /* =========================================================
+       開く・閉じる
+       ========================================================= */
+    function open(){
+      cam.hidden=false;
+      updateInfo();
+      if(stream){
+        // 「記入」で隠している間にiOSが映像を止めることがあるので入れ直す
+        var p0=vid.play(); if(p0&&p0["catch"]) p0["catch"](function(){});
+        startLoop(); return;
+      }
+      say("カメラを起動しています…");
+      if(navigator.storage&&navigator.storage.persist){
+        try{ navigator.storage.persist()["catch"](function(){}); }catch(e){}
+      }
+      if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)){
+        say("この環境ではカメラを使えません"); return;
+      }
+      navigator.mediaDevices.getUserMedia({
+        video:{ facingMode:{ideal:"environment"},
+                width:{ideal:4032}, height:{ideal:3024} }
+      }).then(function(s){
+        stream=s; vid.srcObject=s;
+        var p=vid.play(); if(p&&p["catch"]) p["catch"](function(){});
+        say(""); startLoop();
+      })["catch"](function(e){
+        var n=e&&e.name;
+        if(n==="NotAllowedError") say("カメラの使用が許可されていません。\n設定でこのサイトのカメラを許可してください。");
+        else say("カメラを開けませんでした（"+(n||"不明")+"）");
+      });
+    }
+    function close(keepStream){
+      cam.hidden=true;
+      if(raf){ cancelAnimationFrame(raf); raf=0; }
+      if(!keepStream&&stream){
+        var ts=stream.getTracks();
+        for(var i=0;i<ts.length;i++) ts[i].stop();
+        stream=null; vid.srcObject=null;
+      }
+    }
+
+    document.getElementById("camEdit").addEventListener("click",function(){ close(true); });
+    document.getElementById("camClose").addEventListener("click",function(){ close(false); });
+    document.getElementById("camOut").addEventListener("click",function(){ exportAll(false); });
+
+    var bCam=document.getElementById("bCam");
+    if(bCam) bCam.addEventListener("click",open);
+
+    /* 一覧シートに写真まわりの操作を足す */
+    var foot=document.getElementById("sheetFoot");
+    if(foot){
+      var mk=function(id,cls,txt){
+        var b=document.createElement("button");
+        b.className="btn"+(cls?" "+cls:""); b.id=id; b.type="button"; b.textContent=txt;
+        return b;
+      };
+      var bz=mk("bZip","","写真を書き出す");
+      var bzo=mk("bZipO","","写真＋原本を書き出す");
+      var bzc=mk("bZipC","ghost","写真を全部消す");
+      foot.insertBefore(bz,foot.firstChild);
+      foot.insertBefore(bzo,bz.nextSibling);
+      bz.addEventListener("click",function(){ exportAll(false); });
+      bzo.addEventListener("click",function(){ exportAll(true); });
+      bzc.addEventListener("click",function(){
+        dbCount(function(n){
+          if(!n){ toast("写真はありません"); return; }
+          if(!window.confirm(n+"枚の写真をiPadから削除します。\n書き出し済みか確認してください。よろしいですか？")) return;
+          dbClear(function(ok){
+            if(ok){ pending=0; updateInfo(); toast("写真を削除しました"); }
+            else toast("削除できませんでした");
+          });
+        });
+      });
+      var wipe=document.getElementById("bWipe");
+      if(wipe&&wipe.parentNode) wipe.parentNode.insertBefore(bzc,wipe);
+    }
+
+    /* 起動時に、前回ためた枚数を拾っておく */
+    dbCount(function(n){
+      pending=n;
+      updateInfo();
+      if(n>0) toast("書き出していない写真が"+n+"枚あります");
+    });
+  })();
+
   fit();
   redrawInk();
   keepAwake();

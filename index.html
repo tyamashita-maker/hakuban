@@ -250,7 +250,7 @@
 </style>
 </head>
 <body>
-<script>window.__BUILD__="20261113-175817";</script>
+<script>window.__BUILD__="20261113-180655";</script>
 <div id="app">
   <div id="stage"><div id="boardWrap"><div id="board"></div></div></div>
   <div id="bar">
@@ -2056,6 +2056,34 @@
     }
 
     /* =========================================================
+       JPEGに書き出す（1枚あたりの上限を決めておく）
+
+       品質0.92のままだと4032x3024で5MBを超えることがあり、
+       1日100枚撮ると現実的でない大きさになる。
+       1回の圧縮に1秒前後かかるので、何度も試すと撮影テンポが落ちる。
+       そこで、たいてい収まる品質で1回書き出し、
+       超えたときだけ超過分から品質を見積もって、もう1回だけ取り直す。
+       ========================================================= */
+    var MAXB=2*1024*1024;        // 1枚の上限（約2MB）
+    var Q0=0.70;                 // 最初に試す品質
+    function encodeFit(cv,cb){
+      var tries=0, best=null;
+      function go(q){
+        cv.toBlob(function(b){
+          if(!b){ cb(best); return; }
+          if(!best||b.size<best.size) best=b;
+          tries++;
+          if(b.size<=MAXB||tries>=3){ cb(best); return; }
+          var nq=q*Math.sqrt((MAXB*0.90)/b.size);  // 余裕をみて確実に収める
+          if(nq>=q) nq=q*0.85;                     // 必ず下げる
+          if(nq<0.35) nq=0.35;
+          go(nq);
+        },"image/jpeg",q);
+      }
+      go(Q0);
+    }
+
+    /* =========================================================
        撮影
        ========================================================= */
     function doFlash(){
@@ -2079,7 +2107,7 @@
       c.getContext("2d").drawImage(vid,0,0,vw,vh);
       var isx=extraMode;
       var rec=recFor(isx);
-      c.toBlob(function(b){
+      encodeFit(c,function(b){
         c.width=c.height=1;
         if(!b){ busy=false; toast("撮影できませんでした"); return; }
         var id=String(Date.now())+"-"+Math.random().toString(36).slice(2,8);
@@ -2091,7 +2119,7 @@
             afterShot(isx);
           });
         });
-      },"image/jpeg",0.92);
+      });
     }
 
     /* 拡大写真は直前に撮った1枚にぶら下げる。
@@ -2184,11 +2212,11 @@
         c.drawImage(img,0,0,W,H);
         if(!it.extra) drawBoard(c,W,H,rowsOf(it.rec||{}));
         URL.revokeObjectURL(url);
-        wcv.toBlob(function(b){
+        encodeFit(wcv,function(b){
           if(!b){ cb(null); return; }
           // 合成後も撮影日時を引き継ぐ。純正カメラの写真は本物のEXIFを使う
           withExif(b,it.app1||exifFor(it.at),cb);
-        },"image/jpeg",0.92);
+        });
       };
       img.onerror=function(){ URL.revokeObjectURL(url); cb(null); };
       img.src=url;
@@ -2369,6 +2397,7 @@
     }
 
     window.__camdbg={ rowsOf:rowsOf, drawBoard:drawBoard, buildRec:buildRec,
+                      encodeFit:encodeFit, maxBytes:MAXB,
                       state:function(){ return {stream:!!stream,hidden:cam.hidden,
                         raf:raf,pw:pv.width,ph:pv.height,
                         vw:vid.videoWidth,vh:vid.videoHeight}; } };
